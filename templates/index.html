@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ponto Fazenda</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f4f4f4; }
+        table { margin: 20px auto; border-collapse: collapse; background: white; width: 80%; }
+        th, td { border: 1px solid #ddd; padding: 12px; }
+        th { background: #2e7d32; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🕒 Registro de Ponto - Fazenda</h1>
+    <table>
+        <tr><th>Funcionário</th><th>Data e Hora</th></tr>
+        {% for p in pontos %}
+        <tr><td>{{ p[0] }}</td><td>{{ p[1] }}</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
