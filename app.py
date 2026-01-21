@@ -66,24 +66,34 @@ def logout():
 def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
+    # --- DADOS FICTÍCIOS PARA VISUALIZAÇÃO ---
+    # Este bloco substitui a consulta ao banco de dados para permitir o desenvolvimento do frontend.
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT func_id, horario FROM registros ORDER BY horario DESC LIMIT 50")
-        dados_brutos = cur.fetchall()
-        cur.close()
-        conn.close()
+        from datetime import datetime, timedelta
 
-        # Mapeia o ID para o nome do funcionário
-        dados_mapeados = []
-        for registro in dados_brutos:
-            func_id = registro[0]
-            nome = funcionarios.get(func_id, f"ID {func_id}") # Usa o ID se o nome não for encontrado
-            dados_mapeados.append((nome, registro[1]))
+        # Dados fictícios para simulação
+        dados_mapeados = [
+            ("João", datetime.now() - timedelta(hours=0, minutes=15)),
+            ("Maria", datetime.now() - timedelta(hours=0, minutes=5)),
+            ("João", datetime.now() - timedelta(hours=4, minutes=30)),
+            ("Maria", datetime.now() - timedelta(hours=4, minutes=25)),
+            ("João", datetime.now() - timedelta(hours=6, minutes=10)),
+            ("Maria", datetime.now() - timedelta(hours=6, minutes=2)),
+            ("João", datetime.now() - timedelta(hours=10, minutes=40)),
+            ("Maria", datetime.now() - timedelta(hours=10, minutes=35)),
+            ("João", datetime.now() - timedelta(days=1, hours=0, minutes=5)),
+            ("Maria", datetime.now() - timedelta(days=1, hours=0, minutes=1)),
+            ("João", datetime.now() - timedelta(days=1, hours=4, minutes=20)),
+            ("Maria", datetime.now() - timedelta(days=1, hours=4, minutes=15)),
+        ]
+
+        # Ordena por data, do mais recente para o mais antigo
+        dados_mapeados.sort(key=lambda x: x[1], reverse=True)
 
         return render_template('index.html', pontos=dados_mapeados)
     except Exception as e:
-        return f"Erro ao carregar os dados: {e}"
+        # Manter um tratamento de erro básico
+        return f"Erro ao gerar dados fictícios: {e}"
 
 @app.route('/iclock/cdata', methods=['POST', 'GET'])
 def receber_ponto():
