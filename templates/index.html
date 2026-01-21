@@ -4,18 +4,41 @@
     <title>Ponto Fazenda</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #f4f4f4; }
-        table { margin: 20px auto; border-collapse: collapse; background: white; width: 80%; }
+        .container { width: 80%; margin: auto; }
+        table { margin: 20px 0; border-collapse: collapse; background: white; width: 100%; }
         th, td { border: 1px solid #ddd; padding: 12px; }
         th { background: #2e7d32; color: white; }
+        .export-button {
+            display: inline-block;
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+            border: none;
+        }
     </style>
 </head>
 <body>
-    <h1>🕒 Registro de Ponto - Fazenda</h1>
-    <table>
-        <tr><th>Funcionário</th><th>Data e Hora</th></tr>
-        {% for p in pontos %}
-        <tr><td>{{ p[0] }}</td><td>{{ p[1] }}</td></tr>
-        {% endfor %}
-    </table>
+    <div class="container">
+        <h1>🕒 Registro de Ponto - Fazenda</h1>
+        <div>
+            <a href="/export" class="export-button">Exportar para Excel</a>
+            <a href="/logout" class="export-button" style="background-color: #d32f2f;">Sair</a>
+        </div>
+        <table>
+            <tr><th>Funcionário</th><th>Data e Hora</th></tr>
+            {% for p in pontos %}
+            <tr>
+                <td>{{ p[0] }}</td>
+                <td>{{ p[1].strftime('%d/%m/%Y %H:%M:%S') }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
 </body>
 </html>
