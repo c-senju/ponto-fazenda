@@ -9,7 +9,7 @@ import os
 # - session: Para armazenar informações do usuário entre requisições (login).
 # - redirect, url_for: Para redirecionar o usuário para outras páginas.
 # - flash: Para exibir mensagens temporárias para o usuário.
-from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash
+from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash, jsonify
 # psycopg2: O "driver" que permite que o Python se conecte a um banco de dados PostgreSQL.
 import psycopg2
 # pandas: Uma biblioteca poderosa para manipulação e análise de dados. Usamos para criar o arquivo Excel.
@@ -261,6 +261,87 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
         }
 
     return resultado_formatado
+
+# --- Rotas e Funções para Webhook EVO ---
+
+def get_cloud_time():
+    """
+    Gera e retorna a data e hora atual no formato específico (YYYY-MM-DD HH:MM:SS)
+    exigido pelo dispositivo EVO em suas respostas.
+    """
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+def evo_exact_response():
+    """
+    Monta e retorna a resposta JSON exata que o dispositivo EVO espera.
+    - Sem campos extras.
+    - JSON puro.
+    - HTTP 200.
+    """
+    return {
+        "ret": "reg",
+        "result": 1,
+        "cloudtime": get_cloud_time(),
+    }
+
+def log_body_fully(tag, body):
+    """
+    Registra o corpo (body) de uma requisição no console para depuração.
+    Tenta decodificar o corpo como texto e o exibe, truncando se for muito longo.
+    """
+    MAX_LOG_CHARS = 12000
+    PREVIEW_CHARS = 800
+
+    try:
+        # O corpo da requisição em Flask (request.data) vem como bytes.
+        # Tentamos decodificá-lo como UTF-8, que é o padrão mais comum.
+        body_str = body.decode('utf-8')
+    except Exception as e:
+        # Se a decodificação falhar, usamos a representação de string dos bytes.
+        body_str = str(body)
+        print(f"[EVO] Falha ao decodificar body como UTF-8: {e}")
+
+    print(f"[EVO] {tag} typeof: {type(body)}")
+    print(f"[EVO] {tag} length: {len(body_str)}")
+    print(f"[EVO] {tag} preview: {body_str[:PREVIEW_CHARS]}")
+
+    if len(body_str) <= MAX_LOG_CHARS:
+        print(f"[EVO] {tag} FULL: {body_str}")
+    else:
+        print(f"[EVO] {tag} FULL (TRUNCATED to {MAX_LOG_CHARS} chars): {body_str[:MAX_LOG_CHARS]}")
+
+@app.route('/api/v1/evo', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+def evo_webhook():
+    """
+    Endpoint para receber webhooks do dispositivo EVO.
+    - Em requisições GET, funciona como um health check.
+    - Em qualquer outra requisição (POST, etc.), ele loga o conteúdo e retorna
+      a resposta exata que o dispositivo espera, confirmando o recebimento.
+      Isso é feito independentemente do conteúdo ser válido ou de erros no processamento,
+      para garantir que o dispositivo não tente reenviar os dados incessantemente.
+    """
+    # Healthcheck simples (não interfere no POST)
+    if request.method == 'GET':
+        return jsonify({"ok": True})
+
+    try:
+        # Para qualquer método diferente de GET, a lógica é a mesma.
+        print("[EVO] HEADERS", request.headers)
+        # request.data contém o corpo da requisição em bytes.
+        log_body_fully("BODY", request.data)
+
+        # Responde sempre com o payload exato, confirmando o recebimento.
+        payload = evo_exact_response()
+        print("[EVO] RETURNING EXACT PAYLOAD", payload)
+        return jsonify(payload)
+
+    except Exception as err:
+        print(f"[EVO] Erro inesperado no webhook: {err}")
+
+        # Mesmo em caso de erro, ainda responde com 200 e no formato exato.
+        payload = evo_exact_response()
+        print("[EVO] ERROR -> returning exact payload", payload)
+        return jsonify(payload)
 
 # --- Rota Principal da Aplicação ---
 
