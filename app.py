@@ -1,27 +1,57 @@
+# --- Importações de Bibliotecas ---
+# os: Para interagir com o sistema operacional, como pegar variáveis de ambiente.
 import os
+# flask: É o framework web que estamos usando. Importamos várias funções dele:
+# - Flask: A classe principal para criar a aplicação.
+# - render_template: Para carregar e exibir arquivos HTML (templates).
+# - request: Para acessar os dados de uma requisição web (ex: formulários).
+# - make_response: Para criar uma resposta HTTP customizada (usado no export).
+# - session: Para armazenar informações do usuário entre requisições (login).
+# - redirect, url_for: Para redirecionar o usuário para outras páginas.
+# - flash: Para exibir mensagens temporárias para o usuário.
 from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash
+# psycopg2: O "driver" que permite que o Python se conecte a um banco de dados PostgreSQL.
 import psycopg2
+# pandas: Uma biblioteca poderosa para manipulação e análise de dados. Usamos para criar o arquivo Excel.
 import pandas as pd
+# datetime, time, timedelta: Módulos padrão do Python para trabalhar com datas e horas.
 from datetime import datetime, time, timedelta
+# BytesIO: Permite tratar dados em memória (como um arquivo Excel) como se fosse um arquivo em disco.
 from io import BytesIO
+# groupby: Uma ferramenta útil para agrupar elementos de uma lista (usada para agrupar registros por funcionário/dia).
 from itertools import groupby
 
+# --- Configuração Inicial do Aplicativo Flask ---
+# Cria a instância principal do nosso aplicativo web.
 app = Flask(__name__)
+# Define uma "chave secreta" que o Flask usa para proteger as sessões dos usuários.
+# É importante que seja um valor longo, aleatório и secreto em um ambiente de produção.
 app.secret_key = 'sua_senha_super_secreta_aqui' # Troque por uma senha mais forte
 
-# Pega a URL que você configurou no Render
+# --- Conexão com o Banco de Dados ---
+# Pega a URL de conexão do banco de dados a partir das "variáveis de ambiente" do sistema.
+# Em ambientes como o Render ou Heroku, esta variável é configurada no painel de controle.
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_db_connection():
-    # Conecta ao PostgreSQL usando a URL da variável de ambiente
+    """Cria e retorna uma nova conexão com o banco de dados PostgreSQL."""
+    # A opção sslmode='require' é frequentemente necessária para conexões seguras em serviços de nuvem.
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     return conn
 
-# Esta função cria a tabela no Postgres se ela não existir
 def init_db():
+    """
+    Inicializa o banco de dados. Cria a tabela 'registros' se ela ainda não existir.
+    Isso garante que a aplicação não quebre na primeira vez que for executada.
+    """
     try:
+        # Abre uma conexão.
         conn = get_db_connection()
+        # Cria um "cursor", que é o objeto usado para executar comandos SQL.
         cur = conn.cursor()
+        # Executa o comando SQL para criar a tabela.
+        # "IF NOT EXISTS" previne um erro se a tabela já foi criada.
+        # "SERIAL PRIMARY KEY" cria um ID numérico que se auto-incrementa.
         cur.execute('''
             CREATE TABLE IF NOT EXISTS registros (
                 id SERIAL PRIMARY KEY,
@@ -29,85 +59,122 @@ def init_db():
                 horario TIMESTAMP NOT NULL
             )
         ''')
+        # Salva as alterações no banco de dados.
         conn.commit()
+        # Fecha o cursor e a conexão para liberar os recursos.
         cur.close()
         conn.close()
         print("Banco de dados inicializado com sucesso!")
     except Exception as e:
+        # Se ocorrer qualquer erro, ele será impresso no console do servidor.
         print(f"Erro ao inicializar banco: {e}")
 
-# Chamamos a inicialização assim que o script carrega
+# Chamamos a função de inicialização assim que o aplicativo é carregado.
 init_db()
 
-# Dicionário para mapear IDs de funcionários para nomes
+# --- Dados Estáticos da Aplicação ---
+# Dicionário que mapeia o ID do funcionário (como vem do relógio) para o nome.
+# Em um sistema real, isso viria de uma tabela de 'funcionarios' no banco de dados.
 funcionarios = {
     "1": "João",
     "2": "Maria",
 }
 
+# --- Rotas de Autenticação (Login/Logout) ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Exibe a página de login e processa a tentativa de login."""
+    # Se o usuário enviou o formulário (método POST).
     if request.method == 'POST':
-        # Senha hardcoded para simplicidade
+        # Verifica se a senha enviada no formulário é a senha correta.
+        # A senha está "hardcoded" (fixa no código) para simplicidade.
         if request.form['password'] == 'admin':
+            # Se a senha estiver correta, armazena na "sessão" que o usuário está logado.
             session['logged_in'] = True
+            # Cria uma mensagem de sucesso para ser exibida na próxima página.
             flash('Login realizado com sucesso!')
+            # Redireciona o usuário para a página principal ('index').
             return redirect(url_for('index'))
         else:
+            # Se a senha estiver errada, cria uma mensagem de erro.
             flash('Senha incorreta!')
+    # Se o método for GET (usuário apenas acessou a página), exibe o template de login.
     return render_template('login.html')
 
 @app.route('/logout')
 def logout():
+    """Remove o status de 'logado' da sessão e redireciona para a página de login."""
+    # Remove a informação 'logged_in' da sessão do usuário.
     session.pop('logged_in', None)
+    # Cria uma mensagem informativa.
     flash('Você foi desconectado.')
+    # Redireciona para a tela de login.
     return redirect(url_for('login'))
+
+# --- Funções de Lógica de Negócio ---
 
 def processar_pontos_faltantes(registros_brutos, funcionarios_map):
     """
-    Processa os registros de ponto para identificar batidas faltantes.
-    Uma batida é considerada faltante se não houver nenhum registro dentro de uma
-    janela de 90 minutos (antes ou depois) do horário esperado para um dia
-    em que o funcionário registrou pelo menos um ponto.
+    Analisa todos os registros de ponto para encontrar batidas que foram esquecidas.
+    A regra é: se um funcionário bateu ponto em um dia, ele deveria ter batido
+    nos horários padrão. Esta função verifica se para cada horário padrão, existe
+    uma batida real dentro de uma margem de tolerância (90 minutos).
+
+    Args:
+        registros_brutos (list): Uma lista de tuplas, onde cada tupla é (id_funcionario, horario).
+        funcionarios_map (dict): O dicionário que mapeia ID para nome.
+
+    Returns:
+        list: Uma lista de dicionários, cada um representando uma batida faltante.
     """
-    # Horários de batida esperados
+    # Define os horários de batida esperados para dias de semana e sábados.
     horarios_semana = [time(7, 0), time(11, 0), time(13, 0), time(17, 0)]
     horarios_sabado = [time(7, 0), time(11, 0)]
 
+    # Lista onde armazenaremos as batidas que faltaram.
     batidas_faltantes = []
 
-    # Agrupa os registros por funcionário para facilitar o processamento
+    # Ordena os registros por funcionário e depois por data/hora para que o 'groupby' funcione corretamente.
     registros_por_id = sorted(registros_brutos, key=lambda x: (x[0], x[1]))
+    # Agrupa todos os registros pelo ID do funcionário.
     grupos_por_funcionario = groupby(registros_por_id, key=lambda x: x[0])
 
+    # Itera sobre cada funcionário e seus respectivos registros.
     for func_id, registros_funcionario_raw in grupos_por_funcionario:
         nome_funcionario = funcionarios_map.get(func_id, "Desconhecido")
 
-        # Agrupa os registros deste funcionário por dia
+        # Agora, agrupa os registros deste funcionário por dia.
         registros_por_dia = groupby(registros_funcionario_raw, key=lambda x: x[1].date())
 
+        # Itera sobre cada dia que o funcionário trabalhou.
         for data, registros_dia_raw in registros_por_dia:
+            # Converte o grupo de registros para uma lista de horários.
             registros_do_dia = [r[1] for r in registros_dia_raw]
 
-            # Pula domingos
+            # Se for um domingo (weekday() == 6), pula para o próximo dia.
             if data.weekday() == 6:
                 continue
 
+            # Decide qual lista de horários esperados usar (semana ou sábado).
             horarios_esperados = horarios_sabado if data.weekday() == 5 else horarios_semana
 
-            # Verifica cada batida esperada para ESTE dia
+            # Para cada horário que era esperado no dia...
             for esperado in horarios_esperados:
                 encontrado = False
+                # Cria um objeto datetime completo para o horário esperado.
                 horario_esperado_dt = datetime.combine(data, esperado)
 
+                # ...verifica cada batida que realmente aconteceu no dia.
                 for batida in registros_do_dia:
-                    # Define uma janela de 90 minutos para cada lado
+                    # Se a diferença entre a batida real e a esperada for de até 90 minutos...
                     if abs(batida - horario_esperado_dt) <= timedelta(minutes=90):
+                        # ...consideramos que a batida foi encontrada e podemos parar de procurar.
                         encontrado = True
                         break
 
+                # Se, após verificar todas as batidas do dia, não encontramos uma correspondente...
                 if not encontrado:
-                    # Adiciona à lista se nenhuma batida correspondente foi encontrada
+                    # ...adicionamos um registro à nossa lista de batidas faltantes.
                     batidas_faltantes.append({
                         "funcionario": nome_funcionario,
                         "data": data.strftime('%d/%m/%Y'),
@@ -118,47 +185,73 @@ def processar_pontos_faltantes(registros_brutos, funcionarios_map):
 
 def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
     """
-    Calcula as horas normais, extras 50% e extras 100% para cada funcionário.
+    Calcula o total de horas trabalhadas por cada funcionário, separando em
+    horas normais, extras com 50% e extras com 100%.
+
+    Regras:
+    - Dias de semana: Até 8h são normais, o que passar é extra 50%.
+    - Sábados: Até 4h são normais, o que passar é extra 50%.
+    - Domingos: Todas as horas são extra 100%.
+    - Batidas ímpares: A última batida do dia é ignorada.
+
+    Args:
+        registros_brutos (list): Uma lista de tuplas (id_funcionario, horario).
+        funcionarios_map (dict): O dicionário que mapeia ID para nome.
+
+    Returns:
+        dict: Um dicionário onde as chaves são nomes de funcionários e os valores
+              são outros dicionários com as horas formatadas.
     """
+    # Cria uma estrutura para armazenar as horas de cada funcionário, iniciando com zero.
     resumo_horas = {nome: {'normal': timedelta(), 'extra50': timedelta(), 'extra100': timedelta()} for nome in funcionarios_map.values()}
 
-    # Agrupa registros por funcionário e depois por dia
+    # Agrupa os registros por funcionário, similar à função anterior.
     registros_por_id = sorted(registros_brutos, key=lambda x: (x[0], x[1]))
     grupos_por_funcionario = groupby(registros_por_id, key=lambda x: x[0])
 
     for func_id, registros_funcionario in grupos_por_funcionario:
         nome_funcionario = funcionarios_map.get(func_id, "Desconhecido")
 
+        # Agrupa os registros do funcionário por dia.
         registros_por_dia = groupby(registros_funcionario, key=lambda x: x[1].date())
 
         for data, registros_dia_raw in registros_por_dia:
+            # Ordena as batidas do dia para garantir que estão em ordem cronológica.
             registros_dia = sorted([r[1] for r in registros_dia_raw])
 
-            # Ignora o último ponto se o número de batidas for ímpar, pois não forma um par
+            # Se o número de batidas for ímpar, a última não tem um par de "saída", então a removemos.
             if len(registros_dia) % 2 != 0:
                 registros_dia = registros_dia[:-1]
 
+            # Calcula o total de tempo trabalhado no dia.
             horas_trabalhadas_dia = timedelta()
+            # Itera sobre as batidas em pares (entrada, saída).
             for i in range(0, len(registros_dia), 2):
                 entrada = registros_dia[i]
                 saida = registros_dia[i+1]
+                # Soma o intervalo de tempo ao total do dia.
                 horas_trabalhadas_dia += saida - entrada
 
-            # Lógica para horas extras
-            dia_semana = data.weekday() # Segunda = 0, Domingo = 6
+            # Classifica as horas calculadas (normais, extra 50%, extra 100%).
+            dia_semana = data.weekday() # Segunda-feira é 0, Domingo é 6.
 
-            if dia_semana == 6: # Domingo
+            if dia_semana == 6: # Se for domingo...
                 resumo_horas[nome_funcionario]['extra100'] += horas_trabalhadas_dia
             else:
-                limite_normal = timedelta(hours=8) if dia_semana < 5 else timedelta(hours=4)
+                # Define o limite de horas normais para o dia.
+                limite_normal = timedelta(hours=8) if dia_semana < 5 else timedelta(hours=4) # < 5 é Seg-Sex
 
+                # Compara o total trabalhado com o limite.
                 if horas_trabalhadas_dia > limite_normal:
+                    # Adiciona as horas normais até o limite.
                     resumo_horas[nome_funcionario]['normal'] += limite_normal
+                    # O que exceder o limite vira hora extra 50%.
                     resumo_horas[nome_funcionario]['extra50'] += horas_trabalhadas_dia - limite_normal
                 else:
+                    # Se não excedeu o limite, todas as horas são normais.
                     resumo_horas[nome_funcionario]['normal'] += horas_trabalhadas_dia
 
-    # Formata o resultado para um formato mais legível (ex: "10h 30m")
+    # Formata os objetos timedelta para uma string mais legível (ex: "10h 30m").
     resultado_formatado = {}
     for nome, horas in resumo_horas.items():
         resultado_formatado[nome] = {
@@ -169,120 +262,162 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
 
     return resultado_formatado
 
+# --- Rota Principal da Aplicação ---
+
 @app.route('/')
 def index():
+    """Rota principal que exibe o dashboard com todos os dados."""
+    # Verifica se o usuário está logado (verificando a sessão). Se não, redireciona para a página de login.
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
     registros_brutos = []
     try:
-        # Tenta conectar ao banco de dados e buscar os registros
+        # Bloco principal: tenta conectar ao banco de dados e buscar os registros.
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT func_id, horario FROM registros ORDER BY horario DESC")
-        registros_brutos = cur.fetchall()
+        registros_brutos = cur.fetchall() # Pega todos os resultados da consulta.
         cur.close()
         conn.close()
     except Exception as e:
+        # Bloco de exceção: executado se a conexão com o banco de dados falhar.
+        # Isso é útil para poder desenvolver a interface mesmo sem o banco de dados estar acessível.
         print(f"ALERTA: Não foi possível conectar ao banco de dados: {e}")
         print("Usando dados fictícios para visualização.")
 
         # --- DADOS FICTÍCIOS ESTRUTURADOS (Fallback) ---
+        # Cria dados de exemplo para que a página não fique vazia em caso de erro.
         hoje = datetime.now().date()
         segunda_feira_passada = hoje - timedelta(days=hoje.weekday())
         registros_brutos = [
-            ('1', datetime.combine(segunda_feira_passada, time(7, 5))),
+            # Registros do João (ID '1')
+            ('1', datetime.combine(segunda_feira_passada, time(7, 5))),   # Segunda
             ('1', datetime.combine(segunda_feira_passada, time(11, 2))),
             ('1', datetime.combine(segunda_feira_passada, time(13, 1))),
             ('1', datetime.combine(segunda_feira_passada, time(17, 8))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1))), # Terça (com hora extra)
             ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 0))),
             ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 5))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2))), # Saiu mais tarde
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))), # Sábado
             ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(11, 0))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0))), # Domingo (extra 100%)
             ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(10, 0))),
-            ('2', datetime.combine(segunda_feira_passada, time(7, 3))),
+            # Registros da Maria (ID '2')
+            ('2', datetime.combine(segunda_feira_passada, time(7, 3))),   # Segunda (faltou uma batida)
             ('2', datetime.combine(segunda_feira_passada, time(11, 1))),
             ('2', datetime.combine(segunda_feira_passada, time(13, 0))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6))), # Terça
             ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 4))),
             ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 2))),
             ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(17, 9))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))), # Sábado (esqueceu de bater a saída)
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0))), # Esta batida será ignorada
         ]
 
-    # Processa os dados (sejam eles do banco ou fictícios)
+    # --- Processamento dos Dados ---
+    # Independentemente de os dados virem do banco ou serem fictícios, eles são processados aqui.
+
+    # Chama a função para encontrar pontos faltantes.
     pontos_faltantes = processar_pontos_faltantes(registros_brutos, funcionarios)
+    # Chama a função para calcular as horas trabalhadas.
     resumo_horas = calcular_horas_trabalhadas(registros_brutos, funcionarios)
+    # Mapeia os IDs para nomes e ordena os registros por data/hora para exibição na tabela.
     dados_mapeados = sorted(
         [(funcionarios.get(str(r[0]), "Desconhecido"), r[1]) for r in registros_brutos],
         key=lambda x: x[1],
         reverse=True
     )
 
+    # Renderiza o template 'index.html', passando todas as informações processadas para ele.
     return render_template('index.html',
                            pontos=dados_mapeados,
                            pontos_faltantes=pontos_faltantes,
                            resumo_horas=resumo_horas)
 
+# --- Rota para Recebimento de Dados do Relógio ---
+
 @app.route('/iclock/cdata', methods=['POST', 'GET'])
 def receber_ponto():
-    # O ZKTeco envia os dados no corpo da requisição, não como formulário
+    """
+    Esta é a rota que o relógio de ponto (ZKTeco) acessa para enviar os dados.
+    Ela recebe os dados, processa e insere no banco de dados.
+    """
+    # O equipamento envia os dados no corpo da requisição em formato de texto.
     raw_data = request.get_data(as_text=True)
-    print(f"Dados recebidos do relógio: {raw_data}") # Log para depuração
+    # Imprime os dados recebidos no console do servidor. Útil para depuração.
+    print(f"Dados recebidos do relógio: {raw_data}")
 
     try:
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Os dados podem ter várias linhas, separadas por \r\n
+        # Os dados podem vir com múltiplas linhas, cada uma sendo um registro.
+        # Elas são separadas por '\r\n'.
         lines = raw_data.strip().split('\r\n')
         for line in lines:
+            # Cada linha tem colunas separadas por uma tabulação ('\t').
             parts = line.split('\t')
+            # Garante que a linha tem pelo menos as duas colunas que precisamos.
             if len(parts) >= 2:
-                # O formato é: YYYY-MM-DD HH:MM:SS\tID_do_Funcionario\t...
+                # A primeira coluna é a data/hora, a segunda é o ID do funcionário.
                 horario_str = parts[0]
                 func_id = parts[1]
 
-                # Converte a string para um objeto datetime
+                # Converte a string de data/hora para um objeto datetime do Python.
                 horario = datetime.strptime(horario_str, '%Y-%m-%d %H:%M:%S')
 
+                # Executa o comando SQL para inserir o novo registro na tabela.
+                # Usar '%s' ajuda a prevenir ataques de "SQL Injection".
                 cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
                             (func_id, horario))
+        # Salva todas as inserções feitas no loop.
         conn.commit()
         cur.close()
         conn.close()
+        # O relógio espera uma resposta "OK" para saber que os dados foram recebidos.
         return "OK"
     except Exception as e:
-        print(f"Erro ao salvar ponto: {e}") # Log do erro no servidor
+        # Se algo der errado, imprime o erro no log do servidor e retorna uma mensagem de erro.
+        print(f"Erro ao salvar ponto: {e}")
         return f"Erro ao salvar ponto: {e}"
+
+# --- Rota para Exportação de Dados ---
 
 @app.route('/export')
 def export_excel():
+    """
+    Busca todos os registros do banco de dados e os exporta como um arquivo Excel.
+    """
+    # Protege a rota, exigindo que o usuário esteja logado.
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     try:
         conn = get_db_connection()
-        # Seleciona todos os registros, sem limite
+        # Usa o pandas para executar a consulta SQL e carregar os resultados diretamente em um DataFrame.
         df = pd.read_sql_query("SELECT func_id, horario FROM registros ORDER BY horario DESC", conn)
         conn.close()
 
-        # Mapeia os IDs para nomes no DataFrame
+        # Usa o método '.map()' do pandas para trocar os IDs dos funcionários pelos seus nomes.
         df['func_id'] = df['func_id'].map(funcionarios).fillna(df['func_id'])
+        # Renomeia as colunas para ficarem mais apresentáveis no Excel.
         df.rename(columns={'func_id': 'Funcionário', 'horario': 'Data e Hora'}, inplace=True)
 
-        # Cria um arquivo Excel em memória
+        # --- Criação do Arquivo Excel em Memória ---
+        # Cria um buffer de bytes em memória para salvar o arquivo Excel.
         output = BytesIO()
+        # Usa o ExcelWriter do pandas para escrever o DataFrame no buffer.
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Registros')
 
+        # Move o "cursor" do buffer de volta para o início.
         output.seek(0)
 
-        # Prepara a resposta para download
+        # --- Preparação da Resposta HTTP para Download ---
+        # Cria uma resposta HTTP com o conteúdo do buffer.
         response = make_response(output.getvalue())
+        # Define os cabeçalhos HTTP para que o navegador entenda que é um arquivo para download.
         response.headers["Content-Disposition"] = "attachment; filename=registros_ponto.xlsx"
         response.headers["Content-type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -291,5 +426,8 @@ def export_excel():
     except Exception as e:
         return f"Erro ao exportar dados: {e}"
 
+# --- Ponto de Entrada para Execução do Servidor ---
+# Este bloco só é executado quando o script é rodado diretamente (ex: `python app.py`).
 if __name__ == '__main__':
+    # Inicia o servidor de desenvolvimento do Flask.
     app.run()

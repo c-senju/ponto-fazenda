@@ -1,29 +1,36 @@
+<!-- templates/index.html -->
+<!-- Este template herda a estrutura do 'base.html'. Todo o conteúdo aqui será -->
+<!-- inserido dentro do 'block content' e 'block style' do template pai. -->
 {% extends "base.html" %}
 
+<!-- Define o título específico para esta página. -->
 {% block title %}Dashboard - Ponto Fazenda{% endblock %}
 
+<!-- Adiciona estilos CSS que são específicos para a página do dashboard. -->
 {% block style %}
+    /* Estilos para o container do calendário e do painel de detalhes. */
     #calendar-container {
-        display: flex;
-        gap: 20px;
+        display: flex; /* Coloca o calendário e os detalhes lado a lado. */
+        gap: 20px; /* Espaçamento entre os dois elementos. */
         margin-bottom: 40px;
     }
     #calendar {
-        flex: 3; /* Calendar takes up more space */
+        flex: 3; /* O calendário ocupará 3/4 do espaço disponível. */
         max-width: 900px;
     }
     #day-details {
-        flex: 1; /* Details pane takes up less space */
+        flex: 1; /* O painel de detalhes ocupará 1/4 do espaço. */
         padding: 15px;
         border: 1px solid #ddd;
         border-radius: 5px;
         background-color: #fafafa;
-        min-height: 400px; /* Ensure it has some height */
+        min-height: 400px;
     }
     #day-details h3 {
         margin-top: 0;
         color: #2e7d32;
     }
+    /* Estilo para as seções do dashboard. */
     .dashboard-section {
         margin-bottom: 40px;
     }
@@ -37,6 +44,7 @@
         color: #2e7d32;
         text-align: center;
     }
+    /* Estilização padrão para as tabelas. */
     table {
         margin: 20px 0;
         border-collapse: collapse;
@@ -53,6 +61,7 @@
         background: #2e7d32;
         color: white;
     }
+    /* Estilo para o container do botão de exportação. */
     .button-container {
         text-align: center;
         margin-bottom: 20px;
@@ -75,12 +84,15 @@
     }
 {% endblock %}
 
+<!-- Bloco principal de conteúdo da página. -->
 {% block content %}
     <h1>📊 Dashboard de Ponto - Fazenda</h1>
 
     <!-- Seção do Calendário Interativo -->
     <div id="calendar-container">
+        <!-- O elemento div onde o FullCalendar será renderizado. -->
         <div id="calendar"></div>
+        <!-- O painel onde os detalhes do dia clicado serão exibidos. -->
         <div id="day-details">
             <h3>Detalhes do Dia</h3>
             <p>Selecione um dia no calendário para ver as batidas.</p>
@@ -90,6 +102,7 @@
     <!-- Seção de Batidas Faltantes -->
     <div class="dashboard-section">
         <h2>⚠️ Batidas Faltantes</h2>
+        <!-- Estrutura condicional do Jinja2: verifica se a lista 'pontos_faltantes' (passada pelo Flask) não está vazia. -->
         {% if pontos_faltantes %}
             <table>
                 <thead>
@@ -100,23 +113,26 @@
                     </tr>
                 </thead>
                 <tbody>
+                    <!-- Loop do Jinja2: itera sobre cada item na lista 'pontos_faltantes'. -->
                     {% for ponto in pontos_faltantes %}
                     <tr>
+                        <!-- Acessa os dados de cada 'ponto' e os exibe nas células da tabela. -->
                         <td>{{ ponto.funcionario }}</td>
                         <td>{{ ponto.data }}</td>
                         <td>{{ ponto.horario_faltante }}</td>
                     </tr>
-                    {% endfor %}
+                    {% endfor %} <!-- Fim do loop. -->
                 </tbody>
             </table>
-        {% else %}
+        {% else %} <!-- Caso a lista 'pontos_faltantes' esteja vazia. -->
             <p>Nenhuma batida faltante encontrada no período.</p>
-        {% endif %}
+        {% endif %} <!-- Fim da estrutura condicional. -->
     </div>
 
     <!-- Seção de Resumo de Horas -->
     <div class="dashboard-section">
         <h2>⏱️ Resumo de Horas Trabalhadas no Mês</h2>
+        <!-- Verifica se o dicionário 'resumo_horas' tem conteúdo. -->
         {% if resumo_horas %}
             <table>
                 <thead>
@@ -128,6 +144,8 @@
                     </tr>
                 </thead>
                 <tbody>
+                    <!-- Itera sobre os itens do dicionário 'resumo_horas'. -->
+                    <!-- 'funcionario' será a chave (nome) e 'horas' será o valor (outro dicionário). -->
                     {% for funcionario, horas in resumo_horas.items() %}
                     <tr>
                         <td>{{ funcionario }}</td>
@@ -147,6 +165,7 @@
     <div class="dashboard-section">
         <h2>🕒 Registros de Ponto Individuais</h2>
         <div class="button-container">
+            <!-- Link que aciona a rota '/export' no Flask para baixar o arquivo Excel. -->
             <a href="/export" class="export-button">Exportar para Excel</a>
         </div>
         <table>
@@ -157,9 +176,11 @@
                 </tr>
             </thead>
             <tbody>
+                <!-- Itera sobre a lista 'pontos' que contém todos os registros. -->
                 {% for p in pontos %}
                 <tr>
-                    <td>{{ p[0] }}</td>
+                    <td>{{ p[0] }}</td> <!-- p[0] é o nome do funcionário. -->
+                    <!-- p[1] é o objeto datetime. '.strftime' formata a data para o padrão brasileiro. -->
                     <td>{{ p[1].strftime('%d/%m/%Y %H:%M:%S') }}</td>
                 </tr>
                 {% endfor %}
@@ -167,57 +188,67 @@
         </table>
     </div>
 
+    <!-- Início do script JavaScript para o FullCalendar. -->
     <script>
+        // Adiciona um "ouvinte" que espera o documento HTML ser completamente carregado antes de executar o código.
         document.addEventListener('DOMContentLoaded', function() {
-            // Converte os dados de ponto do Flask para um formato que o JavaScript entende
+            // Pega os dados dos pontos, que foram passados pelo Flask, e os converte para um objeto JSON que o JavaScript pode usar.
+            // O filtro '|tojson' é crucial para fazer essa conversão de forma segura.
             const pontosData = {{ pontos|tojson }};
 
-            // Inicializa o calendário
+            // Encontra o elemento 'div' com o ID 'calendar' no HTML.
             const calendarEl = document.getElementById('calendar');
+            // Cria uma nova instância do FullCalendar dentro do elemento encontrado.
             const calendar = new FullCalendar.Calendar(calendarEl, {
-                locale: 'pt-br', // Define o idioma para português do Brasil
-                initialView: 'dayGridMonth', // Visão inicial de mês
-                headerToolbar: {
+                locale: 'pt-br', // Define o idioma para português do Brasil.
+                initialView: 'dayGridMonth', // A visão inicial será a de um mês.
+                headerToolbar: { // Configura os botões e o título no cabeçalho do calendário.
                     left: 'prev,next today',
                     center: 'title',
                     right: 'dayGridMonth,timeGridWeek'
                 },
+                // Define uma função que será chamada quando o usuário clicar em uma data no calendário.
                 dateClick: function(info) {
-                    // Encontra o container onde os detalhes serão exibidos
+                    // Encontra o painel de detalhes no HTML.
                     const detailsEl = document.getElementById('day-details');
 
-                    // Converte a data clicada para o formato YYYY-MM-DD para comparação
+                    // Pega a data clicada no formato 'YYYY-MM-DD'.
                     const clickedDateStr = info.dateStr;
 
-                    // Filtra os pontos para encontrar os que correspondem à data clicada
+                    // Filtra a lista completa de pontos para encontrar apenas aqueles do dia que foi clicado.
                     const punchesForDay = pontosData.filter(ponto => {
-                        // A data do ponto vem no formato 'Sat, 13 Jul 2024 07:05:00 GMT'
-                        // Precisamos converter para o mesmo formato da data clicada
+                        // O formato da data que vem do Flask é uma string complexa (ex: 'Sat, 13 Jul 2024 07:05:00 GMT').
+                        // Criamos um objeto Date do JavaScript a partir dela.
                         const pontoDate = new Date(ponto[1]);
+                        // Convertemos para o formato 'YYYY-MM-DD' para podermos comparar com a data clicada.
                         const pontoDateStr = pontoDate.toISOString().split('T')[0];
                         return pontoDateStr === clickedDateStr;
                     });
 
-                    // Formata a data para exibição no cabeçalho
+                    // Formata a data clicada para um formato mais amigável para exibição (ex: '13/07/2024').
                     const displayDate = new Date(info.dateStr).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 
-                    // Gera o HTML para os detalhes
+                    // Constrói o HTML que será inserido no painel de detalhes.
                     let html = `<h3>Batidas de ${displayDate}</h3>`;
                     if (punchesForDay.length > 0) {
                         html += '<ul>';
+                        // Para cada batida encontrada, adiciona um item na lista.
                         punchesForDay.forEach(ponto => {
                             const time = new Date(ponto[1]).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                             html += `<li>${ponto[0]}: ${time}</li>`;
                         });
                         html += '</ul>';
                     } else {
+                        // Se nenhuma batida for encontrada para o dia.
                         html += '<p>Nenhuma batida registrada neste dia.</p>';
                     }
 
+                    // Insere o HTML gerado dentro do painel de detalhes.
                     detailsEl.innerHTML = html;
                 }
             });
 
+            // "Desenha" o calendário na tela.
             calendar.render();
         });
     </script>

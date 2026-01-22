@@ -1,8 +1,18 @@
+<!-- templates/base.html -->
+<!-- Este é o template base que define a estrutura comum para todas as outras páginas. -->
+<!-- Outros templates (como index.html e login.html) irão "herdar" desta estrutura. -->
 <!DOCTYPE html>
 <html>
 <head>
+    <!-- O bloco 'title' permite que as páginas filhas definam seu próprio título. -->
+    <!-- Se uma página filha não definir um título, "Ponto Fazenda" será usado como padrão. -->
     <title>{% block title %}Ponto Fazenda{% endblock %}</title>
+
+    <!-- Define o ícone (favicon) que aparece na aba do navegador. -->
+    <!-- 'url_for('static', ...)' é uma função do Flask que gera a URL correta para arquivos estáticos (CSS, JS, imagens). -->
     <link rel="shortcut icon" href="{{ url_for('static', filename='logo.png') }}">
+
+    <!-- Estilos CSS embutidos para a estrutura principal da página. -->
     <style>
         body {
             font-family: 'Helvetica Neue', sans-serif;
@@ -37,25 +47,39 @@
             margin: auto;
             padding: 20px;
         }
+
+        /* O bloco 'style' permite que páginas filhas adicionem seus próprios estilos CSS específicos aqui. */
         {% block style %}{% endblock %}
     </style>
-    <!-- FullCalendar CSS -->
+
+    <!-- Carrega a folha de estilos (CSS) da biblioteca FullCalendar a partir de um CDN (Content Delivery Network). -->
+    <!-- CDN é um serviço que hospeda arquivos para que seu site possa carregá-los de forma mais rápida. -->
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet">
 </head>
 <body>
+    <!-- Cabeçalho da página, que aparecerá em todas as páginas que herdam deste template. -->
     <div class="header">
+        <!-- Exibe a imagem do logo, buscando o caminho através do 'url_for'. -->
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo Fazenda">
+
+        <!-- Bloco condicional do Jinja2: o conteúdo dentro dele só será exibido se a condição for verdadeira. -->
+        <!-- Aqui, verificamos se a variável 'session.logged_in' (definida no Flask durante o login) é verdadeira. -->
         {% if session.logged_in %}
+            <!-- Se o usuário estiver logado, exibe o link para 'Sair'. -->
             <a href="/logout">Sair</a>
         {% endif %}
     </div>
+
+    <!-- Container principal onde o conteúdo específico de cada página será inserido. -->
     <div class="container">
+        <!-- O bloco 'content' é o principal. Cada página filha (index.html, login.html) -->
+        <!-- irá inserir seu conteúdo HTML específico dentro deste bloco. -->
         {% block content %}{% endblock %}
     </div>
 
-    <!-- FullCalendar JS -->
+    <!-- Carrega o código JavaScript principal da biblioteca FullCalendar. -->
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
-    <!-- FullCalendar Portuguese Language -->
+    <!-- Carrega o arquivo de tradução para português do Brasil para o FullCalendar. -->
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales/pt-br.js"></script>
 </body>
 </html>
