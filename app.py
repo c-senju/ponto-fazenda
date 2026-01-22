@@ -354,7 +354,7 @@ def evo_webhook():
             payload = {
                 "ret": "reg",
                 "result": 1,
-                "cloudtime": tempo_dispositivo,
+                "cloudtime": get_cloud_time(),
             }
             print(f"[EVO] Comando 'reg' recebido. Cloudtime extraído: {tempo_dispositivo}")
             return jsonify(payload)
