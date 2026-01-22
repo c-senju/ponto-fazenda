@@ -347,15 +347,15 @@ def evo_webhook():
         # --- Lógica Condicional ---
         # 1. Verifica se o comando é 'reg'
         if data and data.get('cmd') == 'reg':
-    # Acessa o dicionário 'devinfo' e depois busca o campo 'time'
-    device_info = data.get('devinfo', {})
-    tempo_dispositivo = device_info.get('time')
-
-    payload = {
-        "ret": "reg",
-        "result": 1,
-        "cloudtime": tempo_dispositivo,
-    }
+            # Acessa o dicionário 'devinfo' e depois busca o campo 'time'
+            device_info = data.get('devinfo', {})
+            tempo_dispositivo = device_info.get('time')
+        
+            payload = {
+                "ret": "reg",
+                "result": 1,
+                "cloudtime": tempo_dispositivo,
+            }
 
     print(f"[EVO] Comando 'reg' recebido. Cloudtime extraído: {tempo_dispositivo}")
     return jsonify(payload)
