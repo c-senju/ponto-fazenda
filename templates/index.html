@@ -3,6 +3,27 @@
 {% block title %}Dashboard - Ponto Fazenda{% endblock %}
 
 {% block style %}
+    #calendar-container {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+    #calendar {
+        flex: 3; /* Calendar takes up more space */
+        max-width: 900px;
+    }
+    #day-details {
+        flex: 1; /* Details pane takes up less space */
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        background-color: #fafafa;
+        min-height: 400px; /* Ensure it has some height */
+    }
+    #day-details h3 {
+        margin-top: 0;
+        color: #2e7d32;
+    }
     .dashboard-section {
         margin-bottom: 40px;
     }
@@ -56,6 +77,15 @@
 
 {% block content %}
     <h1>📊 Dashboard de Ponto - Fazenda</h1>
+
+    <!-- Seção do Calendário Interativo -->
+    <div id="calendar-container">
+        <div id="calendar"></div>
+        <div id="day-details">
+            <h3>Detalhes do Dia</h3>
+            <p>Selecione um dia no calendário para ver as batidas.</p>
+        </div>
+    </div>
 
     <!-- Seção de Batidas Faltantes -->
     <div class="dashboard-section">
@@ -136,4 +166,59 @@
             </tbody>
         </table>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Converte os dados de ponto do Flask para um formato que o JavaScript entende
+            const pontosData = {{ pontos|tojson }};
+
+            // Inicializa o calendário
+            const calendarEl = document.getElementById('calendar');
+            const calendar = new FullCalendar.Calendar(calendarEl, {
+                locale: 'pt-br', // Define o idioma para português do Brasil
+                initialView: 'dayGridMonth', // Visão inicial de mês
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek'
+                },
+                dateClick: function(info) {
+                    // Encontra o container onde os detalhes serão exibidos
+                    const detailsEl = document.getElementById('day-details');
+
+                    // Converte a data clicada para o formato YYYY-MM-DD para comparação
+                    const clickedDateStr = info.dateStr;
+
+                    // Filtra os pontos para encontrar os que correspondem à data clicada
+                    const punchesForDay = pontosData.filter(ponto => {
+                        // A data do ponto vem no formato 'Sat, 13 Jul 2024 07:05:00 GMT'
+                        // Precisamos converter para o mesmo formato da data clicada
+                        const pontoDate = new Date(ponto[1]);
+                        const pontoDateStr = pontoDate.toISOString().split('T')[0];
+                        return pontoDateStr === clickedDateStr;
+                    });
+
+                    // Formata a data para exibição no cabeçalho
+                    const displayDate = new Date(info.dateStr).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
+                    // Gera o HTML para os detalhes
+                    let html = `<h3>Batidas de ${displayDate}</h3>`;
+                    if (punchesForDay.length > 0) {
+                        html += '<ul>';
+                        punchesForDay.forEach(ponto => {
+                            const time = new Date(ponto[1]).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                            html += `<li>${ponto[0]}: ${time}</li>`;
+                        });
+                        html += '</ul>';
+                    } else {
+                        html += '<p>Nenhuma batida registrada neste dia.</p>';
+                    }
+
+                    detailsEl.innerHTML = html;
+                }
+            });
+
+            calendar.render();
+        });
+    </script>
 {% endblock %}

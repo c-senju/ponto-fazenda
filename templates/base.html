@@ -39,6 +39,8 @@
         }
         {% block style %}{% endblock %}
     </style>
+    <!-- FullCalendar CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="header">
@@ -50,5 +52,10 @@
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+
+    <!-- FullCalendar JS -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
+    <!-- FullCalendar Portuguese Language -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales/pt-br.js"></script>
 </body>
 </html>

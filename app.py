@@ -174,55 +174,51 @@ def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    # --- DADOS FICTÍCIOS ESTRUTURADOS ---
-    # Simula registros de ponto com falhas e horas extras para testar a lógica.
-    # Usamos uma data fixa (última segunda-feira) para garantir que os dias da semana sejam consistentes.
-    hoje = datetime.now().date()
-    segunda_feira_passada = hoje - timedelta(days=hoje.weekday())
+    registros_brutos = []
+    try:
+        # Tenta conectar ao banco de dados e buscar os registros
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT func_id, horario FROM registros ORDER BY horario DESC")
+        registros_brutos = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"ALERTA: Não foi possível conectar ao banco de dados: {e}")
+        print("Usando dados fictícios para visualização.")
 
-    registros_ficticios = [
-        # --- João ---
-        # Segunda (8h normais)
-        ('1', datetime.combine(segunda_feira_passada, time(7, 5))),
-        ('1', datetime.combine(segunda_feira_passada, time(11, 2))),
-        ('1', datetime.combine(segunda_feira_passada, time(13, 1))),
-        ('1', datetime.combine(segunda_feira_passada, time(17, 8))),
-        # Terça (8h normais + 1h extra 50%)
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1))),
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 0))),
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 5))),
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2))),
-        # Sábado (4h normais)
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(11, 0))),
-        # Domingo (2h extra 100%)
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0))),
-        ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(10, 0))),
+        # --- DADOS FICTÍCIOS ESTRUTURADOS (Fallback) ---
+        hoje = datetime.now().date()
+        segunda_feira_passada = hoje - timedelta(days=hoje.weekday())
+        registros_brutos = [
+            ('1', datetime.combine(segunda_feira_passada, time(7, 5))),
+            ('1', datetime.combine(segunda_feira_passada, time(11, 2))),
+            ('1', datetime.combine(segunda_feira_passada, time(13, 1))),
+            ('1', datetime.combine(segunda_feira_passada, time(17, 8))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 5))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(11, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0))),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(10, 0))),
+            ('2', datetime.combine(segunda_feira_passada, time(7, 3))),
+            ('2', datetime.combine(segunda_feira_passada, time(11, 1))),
+            ('2', datetime.combine(segunda_feira_passada, time(13, 0))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 4))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 2))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(17, 9))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0))),
+        ]
 
-        # --- Maria ---
-        # Segunda (Batida ímpar, apenas as 2 primeiras são consideradas -> 4h normais)
-        ('2', datetime.combine(segunda_feira_passada, time(7, 3))),
-        ('2', datetime.combine(segunda_feira_passada, time(11, 1))),
-        ('2', datetime.combine(segunda_feira_passada, time(13, 0))), # Esta será ignorada
-        # Terça (8h normais)
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6))),
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 4))),
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 2))),
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(17, 9))),
-        # Sábado (4h normais + 2h extra 50%)
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))),
-        ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0))),
-    ]
-
-    # Processa os dados para encontrar pontos faltantes
-    pontos_faltantes = processar_pontos_faltantes(registros_ficticios, funcionarios)
-
-    # Calcula as horas trabalhadas e extras
-    resumo_horas = calcular_horas_trabalhadas(registros_ficticios, funcionarios)
-
-    # Prepara os dados brutos para a visualização da tabela de registros
+    # Processa os dados (sejam eles do banco ou fictícios)
+    pontos_faltantes = processar_pontos_faltantes(registros_brutos, funcionarios)
+    resumo_horas = calcular_horas_trabalhadas(registros_brutos, funcionarios)
     dados_mapeados = sorted(
-        [(funcionarios.get(r[0], "Desconhecido"), r[1]) for r in registros_ficticios],
+        [(funcionarios.get(str(r[0]), "Desconhecido"), r[1]) for r in registros_brutos],
         key=lambda x: x[1],
         reverse=True
     )
