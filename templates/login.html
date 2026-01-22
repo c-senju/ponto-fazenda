@@ -1,78 +1,97 @@
+<!-- templates/login.html -->
+<!-- Este template é usado para a página de login e não herda de 'base.html' -->
+<!-- porque tem um layout de página inteira completamente diferente, com imagem de fundo. -->
 <!DOCTYPE html>
 <html>
 <head>
     <title>Login - Ponto Fazenda</title>
     <style>
+        /* Estilização do corpo da página */
         body {
             font-family: 'Helvetica Neue', sans-serif;
             text-align: center;
             margin: 0;
             padding: 0;
+            /* Carrega uma imagem de fundo a partir da pasta 'static'. */
             background-image: url("{{ url_for('static', filename='background.jpg') }}");
-            background-size: cover;
-            background-position: center;
+            background-size: cover; /* Faz a imagem cobrir toda a tela. */
+            background-position: center; /* Centraliza a imagem. */
             background-repeat: no-repeat;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            height: 100vh; /* Altura total da janela de visualização. */
+            display: flex; /* Usa flexbox para centralizar o conteúdo. */
+            justify-content: center; /* Centraliza horizontalmente. */
+            align-items: center; /* Centraliza verticalmente. */
         }
+        /* Container para o formulário de login */
         .login-container {
-            background: rgba(255, 255, 255, 0.9); /* Fundo branco semi-transparente */
+            background: rgba(255, 255, 255, 0.9); /* Fundo branco com 90% de opacidade para um efeito translúcido. */
             padding: 40px;
             border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); /* Sombra suave para dar profundidade. */
             width: 350px;
         }
+        /* Estilo para a imagem do logo */
         .logo {
-            max-width: 200px; /* Ajuste o tamanho conforme necessário */
+            max-width: 200px;
             margin-bottom: 20px;
         }
         h2 {
             color: #333;
         }
+        /* Estilo para o campo de senha */
         input[type="password"] {
-            width: calc(100% - 22px);
+            width: calc(100% - 22px); /* Largura total menos o padding e a borda. */
             padding: 10px;
             margin: 10px 0;
             border: 1px solid #ccc;
             border-radius: 5px;
         }
+        /* Estilo para o botão de 'Entrar' */
         input[type="submit"] {
             width: 100%;
             padding: 12px;
-            background: #2e7d32; /* Verde escuro */
+            background: #2e7d32; /* Cor verde escuro */
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
-            transition: background-color 0.3s;
+            transition: background-color 0.3s; /* Efeito suave na mudança de cor. */
         }
         input[type="submit"]:hover {
-            background: #1b5e20; /* Verde mais escuro */
+            background: #1b5e20; /* Um tom de verde ainda mais escuro ao passar o mouse. */
         }
+        /* Estilo para as mensagens 'flash' (ex: "Senha incorreta!"). */
         .flash {
             padding: 10px;
             margin-bottom: 10px;
             border-radius: 5px;
-            background: #ffebee;
-            color: #c62828;
-            border: 1px solid #ef9a9a;
+            background: #ffebee; /* Fundo rosa claro. */
+            color: #c62828; /* Texto vermelho escuro. */
+            border: 1px solid #ef9a9a; /* Borda vermelha clara. */
         }
     </style>
 </head>
 <body>
     <div class="login-container">
+        <!-- Carrega a imagem do logo da pasta 'static'. -->
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo Fazenda" class="logo">
         <h2>Acesso ao Sistema</h2>
+
+        <!-- Bloco Jinja2 para exibir mensagens 'flash' enviadas pelo Flask. -->
+        <!-- 'get_flashed_messages()' é uma função do Flask que obtém as mensagens pendentes. -->
         {% with messages = get_flashed_messages() %}
-          {% if messages %}
+          {% if messages %} <!-- Verifica se existem mensagens para exibir. -->
+            <!-- Exibe a primeira mensagem da lista. -->
             <div class="flash">{{ messages[0] }}</div>
           {% endif %}
         {% endwith %}
+
+        <!-- O formulário de login. 'method="post"' envia os dados para o servidor. -->
         <form method="post">
+            <!-- Campo de senha. 'name="password"' é como o Flask irá identificar este campo. -->
             <input type="password" name="password" placeholder="Senha" required>
+            <!-- Botão de submissão do formulário. -->
             <input type="submit" value="Entrar">
         </form>
     </div>
