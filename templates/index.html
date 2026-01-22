@@ -3,6 +3,15 @@
 {% block title %}Dashboard - Ponto Fazenda{% endblock %}
 
 {% block style %}
+    .dashboard-section {
+        margin-bottom: 40px;
+    }
+    .dashboard-section h2 {
+        color: #2e7d32;
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
     .container h1 {
         color: #2e7d32;
         text-align: center;
@@ -46,24 +55,85 @@
 {% endblock %}
 
 {% block content %}
-    <h1>🕒 Registro de Ponto - Fazenda</h1>
-    <div class="button-container">
-        <a href="/export" class="export-button">Exportar para Excel</a>
+    <h1>📊 Dashboard de Ponto - Fazenda</h1>
+
+    <!-- Seção de Batidas Faltantes -->
+    <div class="dashboard-section">
+        <h2>⚠️ Batidas Faltantes</h2>
+        {% if pontos_faltantes %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Funcionário</th>
+                        <th>Data</th>
+                        <th>Horário Faltante</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ponto in pontos_faltantes %}
+                    <tr>
+                        <td>{{ ponto.funcionario }}</td>
+                        <td>{{ ponto.data }}</td>
+                        <td>{{ ponto.horario_faltante }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Nenhuma batida faltante encontrada no período.</p>
+        {% endif %}
     </div>
-    <table>
-        <thead>
-            <tr>
-                <th>Funcionário</th>
-                <th>Data e Hora</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for p in pontos %}
-            <tr>
-                <td>{{ p[0] }}</td>
-                <td>{{ p[1].strftime('%d/%m/%Y %H:%M:%S') }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+
+    <!-- Seção de Resumo de Horas -->
+    <div class="dashboard-section">
+        <h2>⏱️ Resumo de Horas Trabalhadas no Mês</h2>
+        {% if resumo_horas %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Funcionário</th>
+                        <th>Horas Normais</th>
+                        <th>Horas Extras 50%</th>
+                        <th>Horas Extras 100%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for funcionario, horas in resumo_horas.items() %}
+                    <tr>
+                        <td>{{ funcionario }}</td>
+                        <td>{{ horas.normal }}</td>
+                        <td>{{ horas.extra50 }}</td>
+                        <td>{{ horas.extra100 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Não há dados de horas trabalhadas para exibir.</p>
+        {% endif %}
+    </div>
+
+    <!-- Seção de Registros Individuais -->
+    <div class="dashboard-section">
+        <h2>🕒 Registros de Ponto Individuais</h2>
+        <div class="button-container">
+            <a href="/export" class="export-button">Exportar para Excel</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Funcionário</th>
+                    <th>Data e Hora</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pontos %}
+                <tr>
+                    <td>{{ p[0] }}</td>
+                    <td>{{ p[1].strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 {% endblock %}
