@@ -356,9 +356,8 @@ def evo_webhook():
                 "result": 1,
                 "cloudtime": tempo_dispositivo,
             }
-
-    print(f"[EVO] Comando 'reg' recebido. Cloudtime extraído: {tempo_dispositivo}")
-    return jsonify(payload)
+            print(f"[EVO] Comando 'reg' recebido. Cloudtime extraído: {tempo_dispositivo}")
+            return jsonify(payload)
         # 2. Verifica se há registros de ponto para processar
         if data and 'record' in data and isinstance(data['record'], list):
             conn = None
