@@ -20,6 +20,8 @@ from datetime import datetime, time, timedelta
 from io import BytesIO
 # groupby: Uma ferramenta útil para agrupar elementos de uma lista (usada para agrupar registros por funcionário/dia).
 from itertools import groupby
+# json: Biblioteca para manipular dados no formato JSON.
+import json
 
 # --- Configuração Inicial do Aplicativo Flask ---
 # Cria a instância principal do nosso aplicativo web.
@@ -69,8 +71,9 @@ def init_db():
         # Se ocorrer qualquer erro, ele será impresso no console do servidor.
         print(f"Erro ao inicializar banco: {e}")
 
-# Chamamos a função de inicialização assim que o aplicativo é carregado.
-init_db()
+# A função init_db() foi removida para garantir que o Alembic seja a única fonte de verdade
+# para o esquema do banco de dados.
+# init_db()
 
 # --- Dados Estáticos da Aplicação ---
 # Dicionário que mapeia o ID do funcionário (como vem do relógio) para o nome.
@@ -328,7 +331,76 @@ def evo_webhook():
         # Para qualquer método diferente de GET, a lógica é a mesma.
         print("[EVO] HEADERS", request.headers)
         # request.data contém o corpo da requisição em bytes.
-        log_body_fully("BODY", request.data)
+        body_bytes = request.data
+        log_body_fully("BODY", body_bytes)
+
+        # Tenta decodificar o corpo da requisição como UTF-8 e, em seguida,
+        # analisa (parse) o JSON para um dicionário Python.
+        try:
+            body_text = body_bytes.decode('utf-8')
+            data = json.loads(body_text)
+            print("[EVO] JSON decodificado com sucesso.")
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            # Se o corpo não for um JSON válido ou não puder ser decodificado,
+            # registra o erro. A resposta de sucesso ainda será enviada
+            # para evitar que o dispositivo EVO tente reenviar.
+            print(f"[EVO] Erro ao decodificar JSON: {e}")
+            # Ainda assim, retornamos a resposta padrão para o EVO não reenviar.
+            return jsonify(evo_exact_response())
+
+        # Se o JSON foi decodificado e contém a chave 'record', processa os registros.
+        if data and 'record' in data and isinstance(data['record'], list):
+            conn = None  # Inicializa a conexão como None
+            cur = None   # Inicializa o cursor como None
+            try:
+                # Obtém o número de série do dispositivo do payload.
+                device_sn = data.get('sn')
+                # Abre uma conexão com o banco de dados.
+                conn = get_db_connection()
+                # Cria um cursor para executar os comandos SQL.
+                cur = conn.cursor()
+
+                # Itera sobre cada registro de ponto enviado pelo dispositivo.
+                for record in data['record']:
+                    # Monta o comando SQL para inserir os dados na tabela 'access_logs'.
+                    # Usar %s previne SQL Injection.
+                    sql = """
+                        INSERT INTO access_logs (
+                            device_sn, enroll_id, user_name, event_time,
+                            mode, inout_mode, event_code, image_base64
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    # Mapeia os dados do JSON para as colunas da tabela.
+                    # .get() é usado para evitar erros se uma chave não existir.
+                    params = (
+                        device_sn,
+                        record.get('enrollid'),
+                        record.get('name'),
+                        record.get('time'),  # O psycopg2 pode lidar com a string de timestamp
+                        record.get('mode'),
+                        record.get('inout'),
+                        record.get('event'),
+                        record.get('image')
+                    )
+                    # Executa o comando de inserção.
+                    cur.execute(sql, params)
+
+                # Confirma (salva) todas as inserções no banco de dados.
+                conn.commit()
+                print(f"[EVO] {len(data['record'])} registros salvos com sucesso.")
+
+            except psycopg2.Error as db_err:
+                # Em caso de erro no banco, registra o problema.
+                print(f"[EVO] Erro no banco de dados: {db_err}")
+                if conn:
+                    # Desfaz a transação se algo deu errado.
+                    conn.rollback()
+            finally:
+                # Garante que o cursor e a conexão sejam sempre fechados.
+                if cur:
+                    cur.close()
+                if conn:
+                    conn.close()
 
         # Responde sempre com o payload exato, confirmando o recebimento.
         payload = evo_exact_response()
