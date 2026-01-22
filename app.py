@@ -345,20 +345,12 @@ def evo_webhook():
             return jsonify({"status": "error", "message": "Invalid JSON"}), 200
 
         # --- Lógica Condicional ---
-        # 1. Verifica se o comando é 'reg'
-        if data and data.get('cmd') == 'reg':
-            # Acessa o dicionário 'devinfo' e depois busca o campo 'time'
-            device_info = data.get('devinfo', {})
-            tempo_dispositivo = device_info.get('time')
-        
-            payload = {
-                "ret": "reg",
-                "result": 1,
-                "cloudtime": get_cloud_time(),
-            }
-            print(f"[EVO] Comando 'reg' recebido. Cloudtime extraído: {tempo_dispositivo}")
-            return jsonify(payload)
-        # 2. Verifica se há registros de ponto para processar
+        # A lógica que tratava especificamente o comando `{"cmd": "reg"}` foi removida.
+        # O objetivo é tratar todas as requisições POST da mesma forma, esperando um payload
+        # com a chave "record" para processar as batidas de ponto.
+        # Se a requisição não contiver "record", ela cairá no tratamento padrão no final.
+
+        # 1. Verifica se há registros de ponto para processar
         if data and 'record' in data and isinstance(data['record'], list):
             conn = None
             cur = None
