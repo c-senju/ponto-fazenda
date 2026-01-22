@@ -318,10 +318,10 @@ def evo_webhook():
     """
     Endpoint para receber webhooks do dispositivo EVO.
     - Em requisições GET, funciona como um health check.
-    - Em qualquer outra requisição (POST, etc.), ele loga o conteúdo e retorna
-      a resposta exata que o dispositivo espera, confirmando o recebimento.
-      Isso é feito independentemente do conteúdo ser válido ou de erros no processamento,
-      para garantir que o dispositivo não tente reenviar os dados incessantemente.
+    - Em requisições POST:
+      - Se o corpo (body) for um JSON com {"cmd": "reg"}, responde com a hora do servidor.
+      - Se o corpo for um JSON com a chave "record", processa os registros de ponto.
+      - Em outros casos ou erros, responde de forma a não causar reenvio pelo dispositivo.
     """
     # Healthcheck simples (não interfere no POST)
     if request.method == 'GET':
@@ -330,90 +330,87 @@ def evo_webhook():
     try:
         # Para qualquer método diferente de GET, a lógica é a mesma.
         print("[EVO] HEADERS", request.headers)
-        # request.data contém o corpo da requisição em bytes.
         body_bytes = request.data
         log_body_fully("BODY", body_bytes)
 
-        # Tenta decodificar o corpo da requisição como UTF-8 e, em seguida,
-        # analisa (parse) o JSON para um dicionário Python.
+        # Tenta decodificar o corpo da requisição como JSON.
         try:
             body_text = body_bytes.decode('utf-8')
             data = json.loads(body_text)
             print("[EVO] JSON decodificado com sucesso.")
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            # Se o corpo não for um JSON válido ou não puder ser decodificado,
-            # registra o erro. A resposta de sucesso ainda será enviada
-            # para evitar que o dispositivo EVO tente reenviar.
+            # Se o corpo não for um JSON válido, registra o erro e responde
+            # com um status genérico para evitar reenvios.
             print(f"[EVO] Erro ao decodificar JSON: {e}")
-            # Ainda assim, retornamos a resposta padrão para o EVO não reenviar.
-            return jsonify(evo_exact_response())
+            return jsonify({"status": "error", "message": "Invalid JSON"}), 200
 
-        # Se o JSON foi decodificado e contém a chave 'record', processa os registros.
+        # --- Lógica Condicional ---
+        # 1. Verifica se o comando é 'reg'
+        if data and data.get('cmd') == 'reg':
+            # Constrói o payload de resposta explicitamente para clareza, conforme feedback da revisão.
+            payload = {
+                "ret": "reg",
+                "result": 1,
+                "cloudtime": get_cloud_time(),
+            }
+            print("[EVO] Comando 'reg' recebido. RETURNING EXACT PAYLOAD", payload)
+            return jsonify(payload)
+
+        # 2. Verifica se há registros de ponto para processar
         if data and 'record' in data and isinstance(data['record'], list):
-            conn = None  # Inicializa a conexão como None
-            cur = None   # Inicializa o cursor como None
+            conn = None
+            cur = None
             try:
-                # Obtém o número de série do dispositivo do payload.
                 device_sn = data.get('sn')
-                # Abre uma conexão com o banco de dados.
                 conn = get_db_connection()
-                # Cria um cursor para executar os comandos SQL.
                 cur = conn.cursor()
 
-                # Itera sobre cada registro de ponto enviado pelo dispositivo.
                 for record in data['record']:
-                    # Monta o comando SQL para inserir os dados na tabela 'access_logs'.
-                    # Usar %s previne SQL Injection.
                     sql = """
                         INSERT INTO access_logs (
                             device_sn, enroll_id, user_name, event_time,
                             mode, inout_mode, event_code, image_base64
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """
-                    # Mapeia os dados do JSON para as colunas da tabela.
-                    # .get() é usado para evitar erros se uma chave não existir.
                     params = (
                         device_sn,
                         record.get('enrollid'),
                         record.get('name'),
-                        record.get('time'),  # O psycopg2 pode lidar com a string de timestamp
+                        record.get('time'),
                         record.get('mode'),
                         record.get('inout'),
                         record.get('event'),
                         record.get('image')
                     )
-                    # Executa o comando de inserção.
                     cur.execute(sql, params)
 
-                # Confirma (salva) todas as inserções no banco de dados.
                 conn.commit()
                 print(f"[EVO] {len(data['record'])} registros salvos com sucesso.")
+                # Responde com um 'OK' genérico para confirmar o recebimento.
+                return jsonify({"status": "ok"}), 200
 
             except psycopg2.Error as db_err:
-                # Em caso de erro no banco, registra o problema.
                 print(f"[EVO] Erro no banco de dados: {db_err}")
                 if conn:
-                    # Desfaz a transação se algo deu errado.
                     conn.rollback()
+                # Resposta de erro, mas com status 200 para não reenviar.
+                return jsonify({"status": "error", "message": "Database error"}), 200
             finally:
-                # Garante que o cursor e a conexão sejam sempre fechados.
                 if cur:
                     cur.close()
                 if conn:
                     conn.close()
 
-        # Responde sempre com o payload exato, confirmando o recebimento.
-        payload = evo_exact_response()
-        print("[EVO] RETURNING EXACT PAYLOAD", payload)
-        return jsonify(payload)
+        # 3. Se não for 'reg' nem contiver 'record', é um caso não esperado.
+        # Retorna uma resposta genérica para que o dispositivo não reenvie.
+        print("[EVO] Payload JSON não continha 'cmd: reg' ou 'record'. Payload:", data)
+        return jsonify({"status": "ok", "message": "No action taken"}), 200
 
     except Exception as err:
+        # Erro geral e inesperado no processamento do webhook.
         print(f"[EVO] Erro inesperado no webhook: {err}")
-
-        # Mesmo em caso de erro, ainda responde com 200 e no formato exato.
-        payload = evo_exact_response()
-        print("[EVO] ERROR -> returning exact payload", payload)
-        return jsonify(payload)
+        # Responde de forma genérica para evitar reenvios.
+        return jsonify({"status": "error", "message": "Unexpected server error"}), 200
 
 # --- Rota Principal da Aplicação ---
 
