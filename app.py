@@ -267,6 +267,7 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
 
 # --- Rotas e Funções para Webhook EVO ---
 
+
 def get_cloud_time():
     """
     Gera e retorna a data e hora atual no formato específico (YYYY-MM-DD HH:MM:SS)
@@ -317,13 +318,14 @@ def log_body_fully(tag, body):
 def evo_webhook():
     """
     Endpoint para receber webhooks do dispositivo EVO.
-    Este endpoint gerencia o "handshake" (aperto de mão) com o dispositivo.
-    O fluxo é o seguinte:
-    1. O dispositivo envia um POST com `{"cmd": "reg"}` para se anunciar.
-    2. O servidor responde com `{"ret": "getlog"}` para pedir os novos registros.
-    3. O dispositivo envia um novo POST, desta vez com a chave `"record"` contendo os registros.
-    4. O servidor salva os registros e responde com `{"ret": "reg", "result": 1, ...}` para confirmar.
-    5. O ciclo recomeça.
+    O fluxo de comunicação esperado é:
+    1. O dispositivo envia um comando `{"cmd": "reg"}` periodicamente para se registrar ("ping").
+    2. O servidor SEMPRE responde com uma confirmação padrão `{"ret": "reg", ...}`.
+    3. Quando uma batida de ponto ocorre, o dispositivo envia uma nova requisição,
+       desta vez contendo a chave `"record"` com os dados do ponto.
+    4. O servidor salva esses registros e responde com a MESMA confirmação padrão,
+       sinalizando que o recebimento foi bem-sucedido.
+    A tentativa anterior de responder com "getlog" estava incorreta para este dispositivo.
     """
     # Se a requisição for GET, é apenas uma verificação de saúde (health check).
     if request.method == 'GET':
@@ -346,19 +348,9 @@ def evo_webhook():
             print(f"[EVO] Erro ao decodificar JSON: {e}")
             return jsonify({"status": "error", "message": "Invalid JSON"}), 200
 
-        # --- Lógica de Handshake com o Dispositivo ---
+        # --- Lógica de Processamento ---
 
-        # Passo 1: Dispositivo se anuncia com {"cmd": "reg"}
-        if data.get('cmd') == 'reg':
-            # Passo 2: Servidor responde pedindo os logs.
-            print("[EVO] Recebido comando 'reg'. Solicitando logs de ponto...")
-            return jsonify({
-                "ret": "getlog",
-                "result": 1,
-                "cloudtime": get_cloud_time(),
-            })
-
-        # Passo 3: Dispositivo envia os registros de ponto na chave "record"
+        # Verifica se a requisição contém registros de ponto para serem salvos.
         if 'record' in data and isinstance(data.get('record'), list):
             conn = None
             cur = None
@@ -389,8 +381,6 @@ def evo_webhook():
 
                 conn.commit()
                 print(f"[EVO] {len(data['record'])} registros salvos com sucesso.")
-                # Passo 4: Responde com a confirmação exata que o dispositivo espera.
-                return jsonify(evo_exact_response())
 
             except psycopg2.Error as db_err:
                 print(f"[EVO] Erro no banco de dados: {db_err}")
@@ -404,9 +394,14 @@ def evo_webhook():
                 if conn:
                     conn.close()
 
-        # Caso o payload não se encaixe em nenhum dos cenários esperados.
-        print("[EVO] Payload não continha 'cmd: reg' ou 'record'. Payload:", data)
-        # Retorna a resposta padrão de confirmação para finalizar o ciclo de comunicação.
+        # Loga se for um comando 'reg' ou um payload desconhecido.
+        elif data.get('cmd') == 'reg':
+            print("[EVO] Recebido comando 'reg' (ping do dispositivo).")
+        else:
+             print("[EVO] Payload não continha 'record' e não era um comando 'reg'. Payload:", data)
+
+        # Para qualquer comunicação POST bem-sucedida (seja um 'reg' ou um 'record'),
+        # retornamos a mesma resposta de confirmação.
         return jsonify(evo_exact_response())
 
     except Exception as err:
