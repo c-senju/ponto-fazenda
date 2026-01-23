@@ -317,41 +317,49 @@ def log_body_fully(tag, body):
 def evo_webhook():
     """
     Endpoint para receber webhooks do dispositivo EVO.
-    - Em requisições GET, funciona como um health check.
-    - Em requisições POST:
-      - Se o corpo (body) for um JSON com {"cmd": "reg"}, responde com a hora do servidor.
-      - Se o corpo for um JSON com a chave "record", processa os registros de ponto.
-      - Em outros casos ou erros, responde de forma a não causar reenvio pelo dispositivo.
+    Este endpoint gerencia o "handshake" (aperto de mão) com o dispositivo.
+    O fluxo é o seguinte:
+    1. O dispositivo envia um POST com `{"cmd": "reg"}` para se anunciar.
+    2. O servidor responde com `{"ret": "getlog"}` para pedir os novos registros.
+    3. O dispositivo envia um novo POST, desta vez com a chave `"record"` contendo os registros.
+    4. O servidor salva os registros e responde com `{"ret": "reg", "result": 1, ...}` para confirmar.
+    5. O ciclo recomeça.
     """
-    # Healthcheck simples (não interfere no POST)
+    # Se a requisição for GET, é apenas uma verificação de saúde (health check).
     if request.method == 'GET':
         return jsonify({"ok": True})
 
     try:
-        # Para qualquer método diferente de GET, a lógica é a mesma.
+        # Para todos os outros métodos (POST, etc.), a lógica de tratamento é a mesma.
         print("[EVO] HEADERS", request.headers)
         body_bytes = request.data
         log_body_fully("BODY", body_bytes)
 
-        # Tenta decodificar o corpo da requisição como JSON.
+        # Tenta decodificar o corpo da requisição de bytes para um dicionário Python (JSON).
         try:
             body_text = body_bytes.decode('utf-8')
             data = json.loads(body_text)
             print("[EVO] JSON decodificado com sucesso.")
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            # Se o corpo não for um JSON válido, registra o erro e responde
-            # com um status genérico para evitar reenvios.
+            # Se o corpo não for um JSON válido, registra o erro e retorna uma resposta
+            # padrão com status 200 para que o dispositivo não tente reenviar.
             print(f"[EVO] Erro ao decodificar JSON: {e}")
             return jsonify({"status": "error", "message": "Invalid JSON"}), 200
 
-        # --- Lógica Condicional ---
-        # A lógica que tratava especificamente o comando `{"cmd": "reg"}` foi removida.
-        # O objetivo é tratar todas as requisições POST da mesma forma, esperando um payload
-        # com a chave "record" para processar as batidas de ponto.
-        # Se a requisição não contiver "record", ela cairá no tratamento padrão no final.
+        # --- Lógica de Handshake com o Dispositivo ---
 
-        # 1. Verifica se há registros de ponto para processar
-        if data and 'record' in data and isinstance(data['record'], list):
+        # Passo 1: Dispositivo se anuncia com {"cmd": "reg"}
+        if data.get('cmd') == 'reg':
+            # Passo 2: Servidor responde pedindo os logs.
+            print("[EVO] Recebido comando 'reg'. Solicitando logs de ponto...")
+            return jsonify({
+                "ret": "getlog",
+                "result": 1,
+                "cloudtime": get_cloud_time(),
+            })
+
+        # Passo 3: Dispositivo envia os registros de ponto na chave "record"
+        if 'record' in data and isinstance(data.get('record'), list):
             conn = None
             cur = None
             try:
@@ -359,6 +367,7 @@ def evo_webhook():
                 conn = get_db_connection()
                 cur = conn.cursor()
 
+                # Itera sobre cada registro de ponto recebido.
                 for record in data['record']:
                     sql = """
                         INSERT INTO access_logs (
@@ -380,14 +389,14 @@ def evo_webhook():
 
                 conn.commit()
                 print(f"[EVO] {len(data['record'])} registros salvos com sucesso.")
-                # Responde com um 'OK' genérico para confirmar o recebimento.
-                return jsonify({"status": "ok"}), 200
+                # Passo 4: Responde com a confirmação exata que o dispositivo espera.
+                return jsonify(evo_exact_response())
 
             except psycopg2.Error as db_err:
                 print(f"[EVO] Erro no banco de dados: {db_err}")
                 if conn:
-                    conn.rollback()
-                # Resposta de erro, mas com status 200 para não reenviar.
+                    conn.rollback() # Desfaz a transação em caso de erro.
+                # Responde com erro, mas com status 200 para não causar reenvio.
                 return jsonify({"status": "error", "message": "Database error"}), 200
             finally:
                 if cur:
@@ -395,13 +404,13 @@ def evo_webhook():
                 if conn:
                     conn.close()
 
-        # 3. Se não for 'reg' nem contiver 'record', é um caso não esperado.
-        # Retorna uma resposta genérica para que o dispositivo não reenvie.
-        print("[EVO] Payload JSON não continha 'cmd: reg' ou 'record'. Payload:", data)
-        return jsonify({"status": "ok", "message": "No action taken"}), 200
+        # Caso o payload não se encaixe em nenhum dos cenários esperados.
+        print("[EVO] Payload não continha 'cmd: reg' ou 'record'. Payload:", data)
+        # Retorna a resposta padrão de confirmação para finalizar o ciclo de comunicação.
+        return jsonify(evo_exact_response())
 
     except Exception as err:
-        # Erro geral e inesperado no processamento do webhook.
+        # Captura qualquer erro inesperado no processo.
         print(f"[EVO] Erro inesperado no webhook: {err}")
         # Responde de forma genérica para evitar reenvios.
         return jsonify({"status": "error", "message": "Unexpected server error"}), 200
