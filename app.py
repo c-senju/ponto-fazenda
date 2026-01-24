@@ -266,149 +266,78 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
     return resultado_formatado
 
 # --- Rotas e Funções para Webhook EVO ---
-
-
-def get_cloud_time():
-    """
-    Gera e retorna a data e hora atual no formato específico (YYYY-MM-DD HH:MM:SS)
-    exigido pelo dispositivo EVO em suas respostas.
-    """
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-def evo_exact_response():
-    """
-    Monta e retorna a resposta JSON exata que o dispositivo EVO espera.
-    - Sem campos extras.
-    - JSON puro.
-    - HTTP 200.
-    """
-    return {
-        "ret": "reg",
-        "result": 1,
-        "cloudtime": get_cloud_time(),
-    }
-
-def log_body_fully(tag, body):
-    """
-    Registra o corpo (body) de uma requisição no console para depuração.
-    Tenta decodificar o corpo como texto e o exibe, truncando se for muito longo.
-    """
-    MAX_LOG_CHARS = 12000
-    PREVIEW_CHARS = 800
-
-    try:
-        # O corpo da requisição em Flask (request.data) vem como bytes.
-        # Tentamos decodificá-lo como UTF-8, que é o padrão mais comum.
-        body_str = body.decode('utf-8')
-    except Exception as e:
-        # Se a decodificação falhar, usamos a representação de string dos bytes.
-        body_str = str(body)
-        print(f"[EVO] Falha ao decodificar body como UTF-8: {e}")
-
-    print(f"[EVO] {tag} typeof: {type(body)}")
-    print(f"[EVO] {tag} length: {len(body_str)}")
-    print(f"[EVO] {tag} preview: {body_str[:PREVIEW_CHARS]}")
-
-    if len(body_str) <= MAX_LOG_CHARS:
-        print(f"[EVO] {tag} FULL: {body_str}")
-    else:
-        print(f"[EVO] {tag} FULL (TRUNCATED to {MAX_LOG_CHARS} chars): {body_str[:MAX_LOG_CHARS]}")
-
-@app.route('/api/v1/evo', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+@app.route('/api/v1/evo', methods=['POST'])
 def evo_webhook():
     """
     Endpoint para receber webhooks do dispositivo EVO.
-    O fluxo de comunicação esperado é:
-    1. O dispositivo envia um comando `{"cmd": "reg"}` periodicamente para se registrar ("ping").
-    2. O servidor SEMPRE responde com uma confirmação padrão `{"ret": "reg", ...}`.
-    3. Quando uma batida de ponto ocorre, o dispositivo envia uma nova requisição,
-       desta vez contendo a chave `"record"` com os dados do ponto.
-    4. O servidor salva esses registros e responde com a MESMA confirmação padrão,
-       sinalizando que o recebimento foi bem-sucedido.
-    A tentativa anterior de responder com "getlog" estava incorreta para este dispositivo.
+    Esta função trata dos comandos 'reg' (handshake) e 'sendlog' (envio de registros de ponto).
     """
-    # Se a requisição for GET, é apenas uma verificação de saúde (health check).
-    if request.method == 'GET':
-        return jsonify({"ok": True})
+    data = request.get_json()
 
-    try:
-        # Para todos os outros métodos (POST, etc.), a lógica de tratamento é a mesma.
-        print("[EVO] HEADERS", request.headers)
-        body_bytes = request.data
-        log_body_fully("BODY", body_bytes)
+    # Se não houver dados JSON, retorna um erro.
+    if not data:
+        return jsonify({"result": 0}), 400
 
-        # Tenta decodificar o corpo da requisição de bytes para um dicionário Python (JSON).
+    # Pega o comando da requisição.
+    comando = data.get("cmd")
+
+    # --- PASSO 1: RESPONDER AO HANDSHAKE (REG) ---
+    # O dispositivo envia este comando para se registrar e verificar se o servidor está online.
+    if comando == "reg":
+        print(f"Recebido Handshake do SN: {data.get('sn')}")
+        # A resposta precisa conter "ret":"reg" e "result":1 para o dispositivo
+        # entender que o servidor está pronto.
+        return jsonify({
+            "ret": "reg",
+            "result": 1,
+            "cloudtime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+    # --- PASSO 2: RECEBER AS BATIDAS DE PONTO (SENDLOG) ---
+    # Após o handshake, o dispositivo envia os registros de ponto neste comando.
+    elif comando == "sendlog":
+        logs = data.get("log", [])
+        conn = None
+        cur = None
         try:
-            body_text = body_bytes.decode('utf-8')
-            data = json.loads(body_text)
-            print("[EVO] JSON decodificado com sucesso.")
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            # Se o corpo não for um JSON válido, registra o erro e retorna uma resposta
-            # padrão com status 200 para que o dispositivo não tente reenviar.
-            print(f"[EVO] Erro ao decodificar JSON: {e}")
-            return jsonify({"status": "error", "message": "Invalid JSON"}), 200
+            conn = get_db_connection()
+            cur = conn.cursor()
 
-        # --- Lógica de Processamento ---
+            # Itera sobre a lista de batidas recebidas.
+            for batida in logs:
+                user_id = batida.get("enrollid")
+                horario_str = batida.get("time")
 
-        # Verifica se a requisição contém registros de ponto para serem salvos.
-        if 'record' in data and isinstance(data.get('record'), list):
-            conn = None
-            cur = None
-            try:
-                device_sn = data.get('sn')
-                conn = get_db_connection()
-                cur = conn.cursor()
+                # Converte a string de data/hora para um objeto datetime.
+                horario = datetime.strptime(horario_str, '%Y-%m-%d %H:%M:%S')
 
-                # Itera sobre cada registro de ponto recebido.
-                for record in data['record']:
-                    sql = """
-                        INSERT INTO access_logs (
-                            device_sn, enroll_id, user_name, event_time,
-                            mode, inout_mode, event_code, image_base64
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """
-                    params = (
-                        device_sn,
-                        record.get('enrollid'),
-                        record.get('name'),
-                        record.get('time'),
-                        record.get('mode'),
-                        record.get('inout'),
-                        record.get('event'),
-                        record.get('image')
-                    )
-                    cur.execute(sql, params)
+                # Insere o registro na tabela 'registros' para ser consistente
+                # com o resto da aplicação.
+                cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
+                            (user_id, horario))
 
-                conn.commit()
-                print(f"[EVO] {len(data['record'])} registros salvos com sucesso.")
+                print(f"Ponto registrado! Usuário: {user_id} em {horario_str}")
 
-            except psycopg2.Error as db_err:
-                print(f"[EVO] Erro no banco de dados: {db_err}")
-                if conn:
-                    conn.rollback() # Desfaz a transação em caso de erro.
-                # Responde com erro, mas com status 200 para não causar reenvio.
-                return jsonify({"status": "error", "message": "Database error"}), 200
-            finally:
-                if cur:
-                    cur.close()
-                if conn:
-                    conn.close()
+            conn.commit()
+        except (Exception, psycopg2.Error) as e:
+            print(f"Erro ao processar 'sendlog': {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
 
-        # Loga se for um comando 'reg' ou um payload desconhecido.
-        elif data.get('cmd') == 'reg':
-            print("[EVO] Recebido comando 'reg' (ping do dispositivo).")
-        else:
-             print("[EVO] Payload não continha 'record' e não era um comando 'reg'. Payload:", data)
+        # O dispositivo exige esta resposta para confirmar que os logs foram salvos.
+        return jsonify({
+            "ret": "sendlog",
+            "result": 1
+        })
 
-        # Para qualquer comunicação POST bem-sucedida (seja um 'reg' ou um 'record'),
-        # retornamos a mesma resposta de confirmação.
-        return jsonify(evo_exact_response())
-
-    except Exception as err:
-        # Captura qualquer erro inesperado no processo.
-        print(f"[EVO] Erro inesperado no webhook: {err}")
-        # Responde de forma genérica para evitar reenvios.
-        return jsonify({"status": "error", "message": "Unexpected server error"}), 200
+    # --- RESPOSTA PADRÃO ---
+    # Para outros comandos como 'keepalive', apenas confirmamos o recebimento.
+    return jsonify({"result": 1})
 
 # --- Rota Principal da Aplicação ---
 
