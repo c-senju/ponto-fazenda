@@ -9,7 +9,7 @@ import os
 # - session: Para armazenar informações do usuário entre requisições (login).
 # - redirect, url_for: Para redirecionar o usuário para outras páginas.
 # - flash: Para exibir mensagens temporárias para o usuário.
-from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash, jsonify, Response
 # psycopg2: O "driver" que permite que o Python se conecte a um banco de dados PostgreSQL.
 import psycopg2
 # pandas: Uma biblioteca poderosa para manipulação e análise de dados. Usamos para criar o arquivo Excel.
@@ -285,13 +285,12 @@ def evo_webhook():
     # O dispositivo envia este comando para se registrar e verificar se o servidor está online.
     if comando == "reg":
         print(f"Recebido Handshake do SN: {data.get('sn')}")
-        # A resposta precisa conter "ret":"reg" e "result":1 para o dispositivo
-        # entender que o servidor está pronto.
-        return jsonify({
-            "ret": "reg",
-            "result": 1,
-            "cloudtime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
+        # A resposta precisa conter "ret":"reg", "result":1 e "cloudtime" nesta ordem exata
+        # para que o dispositivo confie no servidor e envie os logs.
+        # Usamos uma string formatada em vez de jsonify para garantir a ordem.
+        cloud_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        response_json = f'{{"ret":"reg","result":1,"cloudtime":"{cloud_time}"}}'
+        return Response(response_json, mimetype='application/json')
 
     # --- PASSO 2: RECEBER AS BATIDAS DE PONTO (SENDLOG) ---
     # Após o handshake, o dispositivo envia os registros de ponto neste comando.
@@ -330,10 +329,8 @@ def evo_webhook():
                 conn.close()
 
         # O dispositivo exige esta resposta para confirmar que os logs foram salvos.
-        return jsonify({
-            "ret": "sendlog",
-            "result": 1
-        })
+        response_json = '{"ret":"sendlog","result":1}'
+        return Response(response_json, mimetype='application/json')
 
     # --- RESPOSTA PADRÃO ---
     # Para outros comandos como 'keepalive', apenas confirmamos o recebimento.
