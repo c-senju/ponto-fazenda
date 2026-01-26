@@ -10,6 +10,8 @@ import os
 # - redirect, url_for: Para redirecionar o usuário para outras páginas.
 # - flash: Para exibir mensagens temporárias para o usuário.
 from flask import Flask, render_template, request, make_response, session, redirect, url_for, flash, jsonify, Response
+# flask_sock: Biblioteca para adicionar suporte a WebSocket ao Flask.
+from flask_sock import Sock
 # psycopg2: O "driver" que permite que o Python se conecte a um banco de dados PostgreSQL.
 import psycopg2
 # pandas: Uma biblioteca poderosa para manipulação e análise de dados. Usamos para criar o arquivo Excel.
@@ -26,6 +28,8 @@ import json
 # --- Configuração Inicial do Aplicativo Flask ---
 # Cria a instância principal do nosso aplicativo web.
 app = Flask(__name__)
+# Inicializa o Flask-Sock para adicionar suporte a WebSockets ao aplicativo.
+sock = Sock(app)
 # Define uma "chave secreta" que o Flask usa para proteger as sessões dos usuários.
 # É importante que seja um valor longo, aleatório и secreto em um ambiente de produção.
 app.secret_key = 'sua_senha_super_secreta_aqui' # Troque por uma senha mais forte
@@ -265,76 +269,93 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
 
     return resultado_formatado
 
-# --- Rotas e Funções para Webhook EVO ---
-@app.route('/api/v1/evo', methods=['POST'])
-def evo_webhook():
+# --- Rotas e Funções para Webhook EVO via WebSocket ---
+@sock.route('/api/v1/evo')
+def evo_webhook(ws):
     """
-    Endpoint para receber webhooks do dispositivo EVO.
-    Esta função trata dos comandos 'reg' (handshake) e 'sendlog' (envio de registros de ponto).
+    Endpoint WebSocket para comunicação com o dispositivo EVO.
+    Mantém uma conexão persistente para troca de mensagens como 'reg' e 'sendlog'.
+    O parâmetro 'ws' é o objeto da conexão WebSocket fornecido pelo Flask-Sock.
     """
-    data = request.get_json()
-
-    # Se não houver dados JSON, retorna um erro.
-    if not data:
-        return jsonify({"result": 0}), 400
-
-    # Pega o comando da requisição.
-    comando = data.get("cmd")
-
-    # --- PASSO 1: RESPONDER AO HANDSHAKE (REG) ---
-    # O dispositivo envia este comando para se registrar e verificar se o servidor está online.
-    if comando == "reg":
-        print(f"Recebido Handshake do SN: {data.get('sn')}")
-        # A resposta precisa conter "ret":"reg", "result":1 e "cloudtime" nesta ordem exata
-        # para que o dispositivo confie no servidor e envie os logs.
-        # Usamos uma string formatada em vez de jsonify para garantir a ordem.
-        cloud_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        response_json = f'{{"ret":"reg","result":1,"cloudtime":"{cloud_time}"}}'
-        return Response(response_json, mimetype='application/json')
-
-    # --- PASSO 2: RECEBER AS BATIDAS DE PONTO (SENDLOG) ---
-    # Após o handshake, o dispositivo envia os registros de ponto neste comando.
-    elif comando == "sendlog":
-        logs = data.get("log", [])
-        conn = None
-        cur = None
+    # Inicia um loop infinito para manter a conexão WebSocket ativa e ouvir as mensagens do dispositivo.
+    # Cada iteração do loop processará uma mensagem recebida.
+    while True:
         try:
-            conn = get_db_connection()
-            cur = conn.cursor()
+            # Espera por uma mensagem do cliente (dispositivo EVO).
+            # A chamada `ws.receive()` é bloqueante, ou seja, o código pausa aqui até uma mensagem chegar.
+            message = ws.receive()
+            # Converte a mensagem JSON (que é uma string) para um dicionário Python para fácil manipulação.
+            data = json.loads(message)
+            # Imprime os dados recebidos no console para fins de depuração.
+            print(f"Recebido via WebSocket: {data}")
 
-            # Itera sobre a lista de batidas recebidas.
-            for batida in logs:
-                user_id = batida.get("enrollid")
-                horario_str = batida.get("time")
+            # Pega o comando da requisição para determinar a ação a ser tomada.
+            comando = data.get("cmd")
 
-                # Converte a string de data/hora para um objeto datetime.
-                horario = datetime.strptime(horario_str, '%Y-%m-%d %H:%M:%S')
+            # --- LÓGICA PARA O COMANDO 'reg' (REGISTRO/HANDSHAKE) ---
+            if comando == "reg":
+                print(f"Recebido Handshake do SN: {data.get('sn')}")
+                # Prepara a resposta de sucesso para o handshake.
+                # Conforme a documentação, a resposta deve conter 'ret', 'result' e 'cloudtime'.
+                cloud_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                response_dict = {
+                    "ret": "reg",
+                    "result": True, # A documentação especifica um booleano `true`.
+                    "cloudtime": cloud_time
+                }
+                # Envia a resposta de volta para o dispositivo no formato de string JSON.
+                ws.send(json.dumps(response_dict))
+                print(f"Enviado resposta 'reg': {json.dumps(response_dict)}")
 
-                # Insere o registro na tabela 'registros' para ser consistente
-                # com o resto da aplicação.
-                cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
-                            (user_id, horario))
+            # --- LÓGICA PARA O COMANDO 'sendlog' (ENVIO DE REGISTROS) ---
+            elif comando == "sendlog":
+                # A documentação indica que os registros vêm na chave 'record'.
+                logs = data.get("record", [])
+                conn = None
+                cur = None
+                success = False
+                try:
+                    conn = get_db_connection()
+                    cur = conn.cursor()
 
-                print(f"Ponto registrado! Usuário: {user_id} em {horario_str}")
+                    # Itera sobre cada registro de ponto recebido.
+                    for batida in logs:
+                        user_id = batida.get("enrollid")
+                        horario_str = batida.get("time")
+                        horario = datetime.strptime(horario_str, '%Y-%m-%d %H:%M:%S')
 
-            conn.commit()
-        except (Exception, psycopg2.Error) as e:
-            print(f"Erro ao processar 'sendlog': {e}")
-            if conn:
-                conn.rollback()
-        finally:
-            if cur:
-                cur.close()
-            if conn:
-                conn.close()
+                        # Insere o registro no banco de dados.
+                        cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
+                                    (str(user_id), horario))
 
-        # O dispositivo exige esta resposta para confirmar que os logs foram salvos.
-        response_json = '{"ret":"sendlog","result":1}'
-        return Response(response_json, mimetype='application/json')
+                        print(f"Ponto registrado! Usuário: {user_id} em {horario_str}")
 
-    # --- RESPOSTA PADRÃO ---
-    # Para outros comandos como 'keepalive', apenas confirmamos o recebimento.
-    return jsonify({"result": 1})
+                    conn.commit()
+                    success = True # Marca como sucesso se a transação for concluída.
+                except (Exception, psycopg2.Error) as e:
+                    print(f"Erro ao processar 'sendlog': {e}")
+                    if conn:
+                        conn.rollback() # Desfaz a transação em caso de erro.
+                finally:
+                    if cur:
+                        cur.close()
+                    if conn:
+                        conn.close()
+
+                # Prepara a resposta de confirmação para o 'sendlog'.
+                # O dispositivo precisa desta confirmação para limpar os logs da sua memória interna.
+                response_dict = {
+                    "ret": "sendlog",
+                    "result": success
+                }
+                ws.send(json.dumps(response_dict))
+                print(f"Enviado resposta 'sendlog': {json.dumps(response_dict)}")
+
+        except Exception as e:
+            # Se ocorrer um erro (ex: o cliente desconecta, JSON inválido), imprime o erro
+            # e quebra o loop para fechar a conexão deste lado.
+            print(f"Erro na conexão WebSocket: {e}")
+            break
 
 # --- Rota Principal da Aplicação ---
 
