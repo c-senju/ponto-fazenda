@@ -6,6 +6,27 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
 <!-- Define o título específico para esta página. -->
 {% block title %}Dashboard - Ponto Fazenda{% endblock %}
 
+{% block header_content %}
+    <h2 style="margin: 0; color: #2e7d32; font-size: 1.2rem;">📊 Dashboard de Ponto - Fazenda Ribeirão Preto</h2>
+    <div style="display: flex; align-items: center; gap: 10px; background: #fff; padding: 5px 10px; border-radius: 5px; border: 1px solid #ddd; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-size: 0.8rem;">
+        <div style="font-size: 1.2rem;">📡</div>
+        <div>
+            <div style="font-weight: bold; color: #555;">Status do Dispositivo EVO:</div>
+            <div id="evo-status">
+                {% if last_evo_comm %}
+                    {% if (now - last_evo_comm).total_seconds() < 600 %}
+                        <span style="color: #2e7d32; font-weight: bold;">● Online</span>
+                    {% else %}
+                        <span style="color: #f57c00; font-weight: bold;">● Offline</span>
+                    {% endif %}
+                {% else %}
+                    <span style="color: #c62828; font-weight: bold;">● Sem Comunicação</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
 <!-- Adiciona estilos CSS que são específicos para a página do dashboard. -->
 {% block style %}
     /* Estilos para o container do calendário e do painel de detalhes. */
@@ -145,66 +166,6 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
 
 <!-- Bloco principal de conteúdo da página. -->
 {% block content %}
-    <h1>📊 Dashboard de Ponto - Fazenda Ribeirão Preto</h1>
-
-    <!-- Card de Status do Dispositivo EVO -->
-    <div class="dashboard-section" style="margin-top: 20px;">
-        <div style="display: flex; align-items: center; gap: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-            <div style="font-size: 30px;">📡</div>
-            <div>
-                <div style="font-weight: bold; color: #555; margin-bottom: 5px;">Status do Dispositivo EVO:</div>
-                <div id="evo-status">
-                    {% if last_evo_comm %}
-                        {# Calcula se está online (comunicou nos últimos 10 minutos) #}
-                        {% if (now - last_evo_comm).total_seconds() < 600 %}
-                            <span style="color: #2e7d32; font-weight: bold;">● Online</span>
-                        {% else %}
-                            <span style="color: #f57c00; font-weight: bold;">● Offline (Desconectado)</span>
-                        {% endif %}
-                        <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
-                            Última comunicação: {{ last_evo_comm.strftime('%d/%m/%Y %H:%M:%S') }}
-                        </span>
-                    {% else %}
-                        <span style="color: #c62828; font-weight: bold;">● Sem Comunicação</span>
-                        <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
-                            Nenhuma comunicação do dispositivo EVO registrada até o momento.
-                        </span>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Módulo de Inserção Manual de Ponto -->
-    <div class="dashboard-section">
-        <h2>📝 Inserir Ponto Manual</h2>
-        <div class="manual-entry-form">
-            <form action="/add_manual_point" method="POST">
-                <div class="form-group">
-                    <label for="func_id">Funcionário:</label>
-                    <select name="func_id" id="func_id" required>
-                        <option value="">Selecione...</option>
-                        {% for id, nome in funcionarios.items() %}
-                            <option value="{{ id }}">{{ nome }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="data">Data:</label>
-                    <input type="date" name="data" id="data" required>
-                </div>
-                <div class="form-group">
-                    <label for="hora">Horário:</label>
-                    <input type="time" name="hora" id="hora" required>
-                </div>
-                <div class="form-group">
-                    <label for="justificativa">Justificativa:</label>
-                    <input type="text" name="justificativa" id="justificativa" placeholder="Ex: Esqueceu de bater" required>
-                </div>
-                <button type="submit" class="submit-button">Salvar Ponto</button>
-            </form>
-        </div>
-    </div>
 
     <!-- Seção do Calendário Interativo -->
     <div id="calendar-container">
@@ -245,6 +206,37 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
         {% else %} <!-- Caso a lista 'pontos_faltantes' esteja vazia. -->
             <p>Nenhuma batida faltante encontrada no período.</p>
         {% endif %} <!-- Fim da estrutura condicional. -->
+    </div>
+
+    <!-- Módulo de Inserção Manual de Ponto -->
+    <div class="dashboard-section">
+        <h2>📝 Inserir Ponto Manual</h2>
+        <div class="manual-entry-form">
+            <form action="/add_manual_point" method="POST">
+                <div class="form-group">
+                    <label for="func_id">Funcionário:</label>
+                    <select name="func_id" id="func_id" required>
+                        <option value="">Selecione...</option>
+                        {% for id, nome in funcionarios.items() %}
+                            <option value="{{ id }}">{{ nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="data">Data:</label>
+                    <input type="date" name="data" id="data" required>
+                </div>
+                <div class="form-group">
+                    <label for="hora">Horário:</label>
+                    <input type="time" name="hora" id="hora" required>
+                </div>
+                <div class="form-group">
+                    <label for="justificativa">Justificativa:</label>
+                    <input type="text" name="justificativa" id="justificativa" placeholder="Ex: Esqueceu de bater" required>
+                </div>
+                <button type="submit" class="submit-button">Salvar Ponto</button>
+            </form>
+        </div>
     </div>
 
     <!-- Seção de Resumo de Horas -->
@@ -336,7 +328,7 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
             const calendarEl = document.getElementById('calendar');
             // Cria uma nova instância do FullCalendar dentro do elemento encontrado.
             const calendar = new FullCalendar.Calendar(calendarEl, {
-                height: 450, // Define uma altura menor para o calendário.
+                height: 'auto', // Faz com que o calendário ocupe todo o espaço necessário, removendo barras de rolagem.
                 locale: 'pt-br', // Define o idioma para português do Brasil.
                 initialView: 'dayGridMonth', // A visão inicial será a de um mês.
                 headerToolbar: { // Configura os botões e o título no cabeçalho do calendário.
