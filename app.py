@@ -49,6 +49,28 @@ def get_db_connection():
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     return conn
 
+def update_device_communication(sn):
+    """
+    Atualiza ou insere o horário da última comunicação de um dispositivo no banco de dados.
+    Usa a cláusula ON CONFLICT para realizar um UPSERT (update ou insert).
+    """
+    if not sn:
+        return
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO dispositivos (sn, last_communication)
+            VALUES (%s, %s)
+            ON CONFLICT (sn) DO UPDATE
+            SET last_communication = EXCLUDED.last_communication
+        """, (sn, datetime.now()))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Erro ao atualizar status do dispositivo {sn}: {e}")
+
 def init_db():
     """
     Inicializa o banco de dados. Cria a tabela 'registros' se ela ainda não existir.
@@ -350,8 +372,13 @@ def evo_webhook(ws):
             # Imprime os dados recebidos no console para fins de depuração.
             print(f"Recebido via WebSocket: {data}")
 
-            # Pega o comando da requisição para determinar a ação a ser tomada.
+            # Pega o comando e o número de série (SN) da requisição.
             comando = data.get("cmd")
+            sn = data.get("sn")
+
+            # Sempre que recebemos uma mensagem válida com SN, atualizamos o status de comunicação.
+            if sn:
+                update_device_communication(sn)
 
             # --- LÓGICA PARA O COMANDO 'reg' (REGISTRO/HANDSHAKE) ---
             if comando == "reg":
@@ -428,10 +455,18 @@ def index():
         return redirect(url_for('login'))
 
     registros_brutos_completo = []
+    last_evo_comm = None
     try:
         # Bloco principal: tenta conectar ao banco de dados e buscar os registros.
         conn = get_db_connection()
         cur = conn.cursor()
+
+        # Busca a última comunicação de qualquer dispositivo EVO.
+        cur.execute("SELECT MAX(last_communication) FROM dispositivos")
+        row = cur.fetchone()
+        if row:
+            last_evo_comm = row[0]
+
         # Busca id, func_id, horario, origem e justificativa.
         cur.execute("SELECT func_id, horario, origem, justificativa, id FROM registros ORDER BY horario DESC")
         registros_brutos_completo = cur.fetchall() # Pega todos os resultados da consulta.
@@ -509,7 +544,9 @@ def index():
                            pontos_faltantes=pontos_faltantes,
                            resumo_horas=resumo_horas,
                            funcionarios=funcionarios,
-                           feriados=feriados)
+                           feriados=feriados,
+                           last_evo_comm=last_evo_comm,
+                           now=datetime.now())
 
 # --- Rota para Recebimento de Dados do Relógio ---
 

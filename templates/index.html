@@ -147,6 +147,34 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
 {% block content %}
     <h1>📊 Dashboard de Ponto - Fazenda Ribeirão Preto</h1>
 
+    <!-- Card de Status do Dispositivo EVO -->
+    <div class="dashboard-section" style="margin-top: 20px;">
+        <div style="display: flex; align-items: center; gap: 15px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+            <div style="font-size: 30px;">📡</div>
+            <div>
+                <div style="font-weight: bold; color: #555; margin-bottom: 5px;">Status do Dispositivo EVO:</div>
+                <div id="evo-status">
+                    {% if last_evo_comm %}
+                        {# Calcula se está online (comunicou nos últimos 10 minutos) #}
+                        {% if (now - last_evo_comm).total_seconds() < 600 %}
+                            <span style="color: #2e7d32; font-weight: bold;">● Online</span>
+                        {% else %}
+                            <span style="color: #f57c00; font-weight: bold;">● Offline (Desconectado)</span>
+                        {% endif %}
+                        <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
+                            Última comunicação: {{ last_evo_comm.strftime('%d/%m/%Y %H:%M:%S') }}
+                        </span>
+                    {% else %}
+                        <span style="color: #c62828; font-weight: bold;">● Sem Comunicação</span>
+                        <span style="color: #666; font-size: 0.9em; margin-left: 10px;">
+                            Nenhuma comunicação do dispositivo EVO registrada até o momento.
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Módulo de Inserção Manual de Ponto -->
     <div class="dashboard-section">
         <h2>📝 Inserir Ponto Manual</h2>
