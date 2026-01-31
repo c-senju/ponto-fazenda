@@ -22,8 +22,12 @@ from datetime import datetime, time, timedelta
 from io import BytesIO
 # groupby: Uma ferramenta útil para agrupar elementos de uma lista (usada para agrupar registros por funcionário/dia).
 from itertools import groupby
+# lru_cache: Para cachear resultados de funções (como busca de feriados).
+from functools import lru_cache
 # json: Biblioteca para manipular dados no formato JSON.
 import json
+# requests: Para fazer requisições HTTP para as APIs de feriados.
+import requests
 
 # --- Configuração Inicial do Aplicativo Flask ---
 # Cria a instância principal do nosso aplicativo web.
@@ -120,6 +124,55 @@ def logout():
 
 # --- Funções de Lógica de Negócio ---
 
+@lru_cache(maxsize=10)
+def get_feriados(ano, ibge_code="3149800"):
+    """
+    Busca feriados nacionais, estaduais e municipais.
+    Tenta primeiro a API feriados.dev (conforme solicitado).
+    Usa BrasilAPI + Feriados Locais Manuais como fallback caso a primeira falhe.
+    """
+    feriados = {}
+
+    # 1. Tentativa com feriados.dev
+    try:
+        # Nota: O subdomínio api.feriados.dev é o padrão documentado.
+        url = f"https://api.feriados.dev/v1/holidays?year={ano}&ibge_code={ibge_code}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            dados = response.json()
+            # Assume que a API retorna uma lista de objetos com 'date' e 'name'.
+            for f in dados:
+                feriados[f['date']] = f['name']
+            print(f"Feriados carregados via feriados.dev para o ano {ano}")
+            return feriados
+    except Exception as e:
+        print(f"Aviso: Erro ao acessar feriados.dev ({e}). Usando fallback.")
+
+    # 2. Fallback: BrasilAPI (Feriados Nacionais)
+    try:
+        url = f"https://brasilapi.com.br/api/feriados/v1/{ano}"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            dados = response.json()
+            for f in dados:
+                feriados[f['date']] = f['date'] # Chave é a data, valor inicial pode ser o nome
+                # Alguns retornos da BrasilAPI usam 'name'
+                feriados[f['date']] = f.get('name', 'Feriado Nacional')
+    except Exception as e:
+        print(f"Erro ao acessar BrasilAPI: {e}")
+
+    # 3. Adição manual de feriados municipais conhecidos de Perdizes - MG
+    # 17/12 - Aniversário da Cidade (Lei Estadual 148 de 17/12/1938)
+    feriados_locais = [
+        (f"{ano}-12-17", "Aniversário de Perdizes"),
+    ]
+
+    for data, nome in feriados_locais:
+        if data not in feriados:
+            feriados[data] = nome
+
+    return feriados
+
 def processar_pontos_faltantes(registros_brutos, funcionarios_map):
     """
     Analisa todos os registros de ponto para encontrar batidas que foram esquecidas.
@@ -212,6 +265,12 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
     # Cria uma estrutura para armazenar as horas de cada funcionário, iniciando com zero.
     resumo_horas = {nome: {'normal': timedelta(), 'extra50': timedelta(), 'extra100': timedelta()} for nome in funcionarios_map.values()}
 
+    # Busca os feriados para todos os anos presentes nos registros para garantir o cálculo correto.
+    anos_presentes = set(r[1].year for r in registros_brutos)
+    todos_feriados = {}
+    for ano in anos_presentes:
+        todos_feriados.update(get_feriados(ano))
+
     # Agrupa os registros por funcionário, similar à função anterior.
     registros_por_id = sorted(registros_brutos, key=lambda x: (x[0], x[1]))
     grupos_por_funcionario = groupby(registros_por_id, key=lambda x: x[0])
@@ -241,8 +300,10 @@ def calcular_horas_trabalhadas(registros_brutos, funcionarios_map):
 
             # Classifica as horas calculadas (normais, extra 50%, extra 100%).
             dia_semana = data.weekday() # Segunda-feira é 0, Domingo é 6.
+            data_iso = data.strftime('%Y-%m-%d')
 
-            if dia_semana == 6: # Se for domingo...
+            # Regra: Domingos ou Feriados são 100% extra.
+            if dia_semana == 6 or data_iso in todos_feriados:
                 resumo_horas[nome_funcionario]['extra100'] += horas_trabalhadas_dia
             else:
                 # Define o limite de horas normais para o dia.
@@ -438,12 +499,17 @@ def index():
         reverse=True
     )
 
+    # Busca os feriados do ano atual para exibir no calendário.
+    ano_atual = datetime.now().year
+    feriados = get_feriados(ano_atual)
+
     # Renderiza o template 'index.html', passando todas as informações processadas para ele.
     return render_template('index.html',
                            pontos=dados_mapeados,
                            pontos_faltantes=pontos_faltantes,
                            resumo_horas=resumo_horas,
-                           funcionarios=funcionarios)
+                           funcionarios=funcionarios,
+                           feriados=feriados)
 
 # --- Rota para Recebimento de Dados do Relógio ---
 

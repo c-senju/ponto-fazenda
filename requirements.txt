@@ -6,3 +6,4 @@ openpyxl
 alembic
 SQLAlchemy
 flask-sock
+requests
