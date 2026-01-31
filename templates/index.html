@@ -15,8 +15,8 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
         margin-bottom: 40px;
     }
     #calendar {
-        flex: 3; /* O calendário ocupará 3/4 do espaço disponível. */
-        max-width: 900px;
+        flex: 1.5; /* Reduzido de 3 para 1.5 para diminuir o tamanho horizontal. */
+        max-width: 500px; /* Reduzido de 900px para 500px conforme solicitado. */
     }
     #day-details {
         flex: 1; /* O painel de detalhes ocupará 1/4 do espaço. */
@@ -200,6 +200,7 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
             const calendarEl = document.getElementById('calendar');
             // Cria uma nova instância do FullCalendar dentro do elemento encontrado.
             const calendar = new FullCalendar.Calendar(calendarEl, {
+                height: 450, // Define uma altura menor para o calendário.
                 locale: 'pt-br', // Define o idioma para português do Brasil.
                 initialView: 'dayGridMonth', // A visão inicial será a de um mês.
                 headerToolbar: { // Configura os botões e o título no cabeçalho do calendário.
