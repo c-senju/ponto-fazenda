@@ -293,6 +293,17 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
             // O filtro '|tojson' é crucial para fazer essa conversão de forma segura.
             const pontosData = {{ pontos|tojson }};
 
+            // Pega os feriados passados pelo Flask.
+            const feriadosData = {{ feriados|tojson }};
+
+            // Converte o dicionário de feriados em um formato que o FullCalendar entende (eventos).
+            const holidayEvents = Object.keys(feriadosData).map(date => ({
+                title: feriadosData[date],
+                start: date,
+                display: 'background', // Define que o feriado será uma cor de fundo.
+                color: '#ffcdd2'       // Cor vermelha clara para o fundo.
+            }));
+
             // Encontra o elemento 'div' com o ID 'calendar' no HTML.
             const calendarEl = document.getElementById('calendar');
             // Cria uma nova instância do FullCalendar dentro do elemento encontrado.
@@ -305,6 +316,8 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
                     center: 'title',
                     right: 'dayGridMonth,timeGridWeek'
                 },
+                // Adiciona os feriados como eventos ao calendário.
+                events: holidayEvents,
                 // Define uma função que será chamada quando o usuário clicar em uma data no calendário.
                 dateClick: function(info) {
                     // Encontra o painel de detalhes no HTML.
