@@ -325,8 +325,8 @@ def evo_webhook(ws):
                         horario = datetime.strptime(horario_str, '%Y-%m-%d %H:%M:%S')
 
                         # Insere o registro no banco de dados.
-                        cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
-                                    (str(user_id), horario))
+                        cur.execute("INSERT INTO registros (func_id, horario, origem) VALUES (%s, %s, %s)",
+                                    (str(user_id), horario, 'equipamento'))
 
                         print(f"Ponto registrado! Usuário: {user_id} em {horario_str}")
 
@@ -366,13 +366,14 @@ def index():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    registros_brutos = []
+    registros_brutos_completo = []
     try:
         # Bloco principal: tenta conectar ao banco de dados e buscar os registros.
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT func_id, horario FROM registros ORDER BY horario DESC")
-        registros_brutos = cur.fetchall() # Pega todos os resultados da consulta.
+        # Busca id, func_id, horario, origem e justificativa.
+        cur.execute("SELECT func_id, horario, origem, justificativa, id FROM registros ORDER BY horario DESC")
+        registros_brutos_completo = cur.fetchall() # Pega todos os resultados da consulta.
         cur.close()
         conn.close()
     except Exception as e:
@@ -385,43 +386,55 @@ def index():
         # Cria dados de exemplo para que a página não fique vazia em caso de erro.
         hoje = datetime.now().date()
         segunda_feira_passada = hoje - timedelta(days=hoje.weekday())
-        registros_brutos = [
+        # Formato: (func_id, horario, origem, justificativa, id)
+        registros_brutos_completo = [
             # Registros do João (ID '1')
-            ('1', datetime.combine(segunda_feira_passada, time(7, 5))),   # Segunda
-            ('1', datetime.combine(segunda_feira_passada, time(11, 2))),
-            ('1', datetime.combine(segunda_feira_passada, time(13, 1))),
-            ('1', datetime.combine(segunda_feira_passada, time(17, 8))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1))), # Terça (com hora extra)
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 0))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 5))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2))), # Saiu mais tarde
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))), # Sábado
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(11, 0))),
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0))), # Domingo (extra 100%)
-            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(10, 0))),
+            ('1', datetime.combine(segunda_feira_passada, time(7, 5)), 'equipamento', None, 101),   # Segunda
+            ('1', datetime.combine(segunda_feira_passada, time(11, 2)), 'equipamento', None, 102),
+            ('1', datetime.combine(segunda_feira_passada, time(13, 1)), 'equipamento', None, 103),
+            ('1', datetime.combine(segunda_feira_passada, time(17, 8)), 'equipamento', None, 104),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 1)), 'equipamento', None, 105), # Terça (com hora extra)
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 0)), 'equipamento', None, 106),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 5)), 'equipamento', None, 107),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=1), time(18, 2)), 'manual', 'Serviço extra no galpão', 108), # Saiu mais tarde
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0)), 'equipamento', None, 109), # Sábado
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=5), time(11, 0)), 'equipamento', None, 110),
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(8, 0)), 'equipamento', None, 111), # Domingo (extra 100%)
+            ('1', datetime.combine(segunda_feira_passada + timedelta(days=6), time(10, 0)), 'equipamento', None, 112),
             # Registros da Maria (ID '2')
-            ('2', datetime.combine(segunda_feira_passada, time(7, 3))),   # Segunda (faltou uma batida)
-            ('2', datetime.combine(segunda_feira_passada, time(11, 1))),
-            ('2', datetime.combine(segunda_feira_passada, time(13, 0))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6))), # Terça
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 4))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 2))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(17, 9))),
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0))), # Sábado (esqueceu de bater a saída)
-            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0))), # Esta batida será ignorada
+            ('2', datetime.combine(segunda_feira_passada, time(7, 3)), 'equipamento', None, 201),   # Segunda (faltou uma batida)
+            ('2', datetime.combine(segunda_feira_passada, time(11, 1)), 'equipamento', None, 202),
+            ('2', datetime.combine(segunda_feira_passada, time(13, 0)), 'equipamento', None, 203),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(7, 6)), 'equipamento', None, 204), # Terça
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(11, 4)), 'equipamento', None, 205),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(13, 2)), 'equipamento', None, 206),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=1), time(17, 9)), 'equipamento', None, 207),
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(7, 0)), 'equipamento', None, 208), # Sábado (esqueceu de bater a saída)
+            ('2', datetime.combine(segunda_feira_passada + timedelta(days=5), time(13, 0)), 'equipamento', None, 209), # Esta batida será ignorada
         ]
 
     # --- Processamento dos Dados ---
     # Independentemente de os dados virem do banco ou serem fictícios, eles são processados aqui.
 
+    # Extrai apenas (func_id, horario) para as funções de processamento legadas.
+    registros_para_processar = [(r[0], r[1]) for r in registros_brutos_completo]
+
     # Chama a função para encontrar pontos faltantes.
-    pontos_faltantes = processar_pontos_faltantes(registros_brutos, funcionarios)
+    pontos_faltantes = processar_pontos_faltantes(registros_para_processar, funcionarios)
     # Chama a função para calcular as horas trabalhadas.
-    resumo_horas = calcular_horas_trabalhadas(registros_brutos, funcionarios)
-    # Mapeia os IDs para nomes e ordena os registros por data/hora para exibição na tabela.
+    resumo_horas = calcular_horas_trabalhadas(registros_para_processar, funcionarios)
+
+    # Mapeia os dados para um formato de dicionário mais fácil de usar no template.
     dados_mapeados = sorted(
-        [(funcionarios.get(str(r[0]), "Desconhecido"), r[1]) for r in registros_brutos],
-        key=lambda x: x[1],
+        [{
+            'id': r[4],
+            'nome': funcionarios.get(str(r[0]), "Desconhecido"),
+            'func_id': r[0],
+            'horario': r[1],
+            'origem': r[2],
+            'justificativa': r[3]
+        } for r in registros_brutos_completo],
+        key=lambda x: x['horario'],
         reverse=True
     )
 
@@ -429,7 +442,8 @@ def index():
     return render_template('index.html',
                            pontos=dados_mapeados,
                            pontos_faltantes=pontos_faltantes,
-                           resumo_horas=resumo_horas)
+                           resumo_horas=resumo_horas,
+                           funcionarios=funcionarios)
 
 # --- Rota para Recebimento de Dados do Relógio ---
 
@@ -465,8 +479,8 @@ def receber_ponto():
 
                 # Executa o comando SQL para inserir o novo registro na tabela.
                 # Usar '%s' ajuda a prevenir ataques de "SQL Injection".
-                cur.execute("INSERT INTO registros (func_id, horario) VALUES (%s, %s)",
-                            (func_id, horario))
+                cur.execute("INSERT INTO registros (func_id, horario, origem) VALUES (%s, %s, %s)",
+                            (func_id, horario, 'equipamento'))
         # Salva todas as inserções feitas no loop.
         conn.commit()
         cur.close()
@@ -484,6 +498,7 @@ def receber_ponto():
 def export_excel():
     """
     Busca todos os registros do banco de dados e os exporta como um arquivo Excel.
+    Inclui as novas colunas de origem e justificativa.
     """
     # Protege a rota, exigindo que o usuário esteja logado.
     if not session.get('logged_in'):
@@ -491,13 +506,18 @@ def export_excel():
     try:
         conn = get_db_connection()
         # Usa o pandas para executar a consulta SQL e carregar os resultados diretamente em um DataFrame.
-        df = pd.read_sql_query("SELECT func_id, horario FROM registros ORDER BY horario DESC", conn)
+        df = pd.read_sql_query("SELECT func_id, horario, origem, justificativa FROM registros ORDER BY horario DESC", conn)
         conn.close()
 
         # Usa o método '.map()' do pandas para trocar os IDs dos funcionários pelos seus nomes.
         df['func_id'] = df['func_id'].map(funcionarios).fillna(df['func_id'])
         # Renomeia as colunas para ficarem mais apresentáveis no Excel.
-        df.rename(columns={'func_id': 'Funcionário', 'horario': 'Data e Hora'}, inplace=True)
+        df.rename(columns={
+            'func_id': 'Funcionário',
+            'horario': 'Data e Hora',
+            'origem': 'Origem',
+            'justificativa': 'Justificativa'
+        }, inplace=True)
 
         # --- Criação do Arquivo Excel em Memória ---
         # Cria um buffer de bytes em memória para salvar o arquivo Excel.
@@ -520,6 +540,65 @@ def export_excel():
 
     except Exception as e:
         return f"Erro ao exportar dados: {e}"
+
+# --- Novas Rotas para Ponto Manual e Justificativas ---
+
+@app.route('/add_manual_point', methods=['POST'])
+def add_manual_point():
+    """
+    Processa o formulário de inserção manual de ponto.
+    """
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+
+    func_id = request.form.get('func_id')
+    data = request.form.get('data')
+    hora = request.form.get('hora')
+    justificativa = request.form.get('justificativa')
+
+    try:
+        # Combina data e hora e converte para datetime.
+        horario = datetime.strptime(f"{data} {hora}", '%Y-%m-%d %H:%M')
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Insere o registro marcando como origem 'manual'.
+        cur.execute("INSERT INTO registros (func_id, horario, origem, justificativa) VALUES (%s, %s, %s, %s)",
+                    (func_id, horario, 'manual', justificativa))
+        conn.commit()
+        cur.close()
+        conn.close()
+        flash('Ponto manual adicionado com sucesso!')
+    except Exception as e:
+        flash(f'Erro ao adicionar ponto manual: {e}')
+
+    return redirect(url_for('index'))
+
+@app.route('/update_justification', methods=['POST'])
+def update_justification():
+    """
+    Atualiza a justificativa de um registro de ponto existente.
+    Usado via AJAX (fetch) a partir do dashboard.
+    """
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'message': 'Não logado'}), 401
+
+    # Em uma requisição AJAX, os dados podem vir no formulário ou como JSON.
+    # Aqui vamos usar request.form para simplicidade com o formulário padrão.
+    ponto_id = request.form.get('ponto_id')
+    justificativa = request.form.get('justificativa')
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE registros SET justificativa = %s WHERE id = %s", (justificativa, ponto_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Erro ao atualizar justificativa: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # --- Ponto de Entrada para Execução do Servidor ---
 # Este bloco só é executado quando o script é rodado diretamente (ex: `python app.py`).

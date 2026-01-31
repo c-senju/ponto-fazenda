@@ -82,11 +82,101 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
     .export-button:hover {
         background-color: #45a049;
     }
+    /* Estilos para o formulário de ponto manual. */
+    .manual-entry-form {
+        background: #f1f8e9;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #c5e1a5;
+        margin-bottom: 30px;
+    }
+    .manual-entry-form h3 {
+        margin-top: 0;
+        color: #388e3c;
+    }
+    .form-group {
+        display: inline-block;
+        margin-right: 15px;
+        margin-bottom: 10px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .form-group input, .form-group select {
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    .submit-button {
+        background-color: #2e7d32;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .submit-button:hover {
+        background-color: #1b5e20;
+    }
+    /* Badge para origem. */
+    .badge {
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    .badge-equipamento { background-color: #e3f2fd; color: #1976d2; }
+    .badge-manual { background-color: #fff3e0; color: #e65100; }
+
+    /* Estilo para edição de justificativa no painel de detalhes. */
+    .justification-edit {
+        margin-top: 10px;
+        display: flex;
+        gap: 5px;
+    }
+    .justification-edit input {
+        flex: 1;
+        padding: 4px;
+    }
 {% endblock %}
 
 <!-- Bloco principal de conteúdo da página. -->
 {% block content %}
     <h1>📊 Dashboard de Ponto - Fazenda Ribeirão Preto</h1>
+
+    <!-- Módulo de Inserção Manual de Ponto -->
+    <div class="dashboard-section">
+        <h2>📝 Inserir Ponto Manual</h2>
+        <div class="manual-entry-form">
+            <form action="/add_manual_point" method="POST">
+                <div class="form-group">
+                    <label for="func_id">Funcionário:</label>
+                    <select name="func_id" id="func_id" required>
+                        <option value="">Selecione...</option>
+                        {% for id, nome in funcionarios.items() %}
+                            <option value="{{ id }}">{{ nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="data">Data:</label>
+                    <input type="date" name="data" id="data" required>
+                </div>
+                <div class="form-group">
+                    <label for="hora">Horário:</label>
+                    <input type="time" name="hora" id="hora" required>
+                </div>
+                <div class="form-group">
+                    <label for="justificativa">Justificativa:</label>
+                    <input type="text" name="justificativa" id="justificativa" placeholder="Ex: Esqueceu de bater" required>
+                </div>
+                <button type="submit" class="submit-button">Salvar Ponto</button>
+            </form>
+        </div>
+    </div>
 
     <!-- Seção do Calendário Interativo -->
     <div id="calendar-container">
@@ -173,15 +263,22 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
                 <tr>
                     <th>Funcionário</th>
                     <th>Data e Hora</th>
+                    <th>Origem</th>
+                    <th>Justificativa</th>
                 </tr>
             </thead>
             <tbody>
                 <!-- Itera sobre a lista 'pontos' que contém todos os registros. -->
                 {% for p in pontos %}
                 <tr>
-                    <td>{{ p[0] }}</td> <!-- p[0] é o nome do funcionário. -->
-                    <!-- p[1] é o objeto datetime. '.strftime' formata a data para o padrão brasileiro. -->
-                    <td>{{ p[1].strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                    <td>{{ p.nome }}</td>
+                    <td>{{ p.horario.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                    <td>
+                        <span class="badge badge-{{ p.origem }}">
+                            {{ p.origem | capitalize }}
+                        </span>
+                    </td>
+                    <td>{{ p.justificativa or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -218,11 +315,13 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
 
                     // Filtra a lista completa de pontos para encontrar apenas aqueles do dia que foi clicado.
                     const punchesForDay = pontosData.filter(ponto => {
-                        // O formato da data que vem do Flask é uma string complexa (ex: 'Sat, 13 Jul 2024 07:05:00 GMT').
-                        // Criamos um objeto Date do JavaScript a partir dela.
-                        const pontoDate = new Date(ponto[1]);
-                        // Convertemos para o formato 'YYYY-MM-DD' para podermos comparar com a data clicada.
-                        const pontoDateStr = pontoDate.toISOString().split('T')[0];
+                        // O formato da data que vem do Flask agora é parte de um objeto JSON.
+                        const pontoDate = new Date(ponto.horario);
+                        // Ajuste para o fuso horário local ao comparar datas.
+                        const year = pontoDate.getFullYear();
+                        const month = String(pontoDate.getMonth() + 1).padStart(2, '0');
+                        const day = String(pontoDate.getDate()).padStart(2, '0');
+                        const pontoDateStr = `${year}-${month}-${day}`;
                         return pontoDateStr === clickedDateStr;
                     });
 
@@ -232,11 +331,20 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
                     // Constrói o HTML que será inserido no painel de detalhes.
                     let html = `<h3>Batidas de ${displayDate}</h3>`;
                     if (punchesForDay.length > 0) {
-                        html += '<ul>';
+                        html += '<ul style="padding-left: 20px;">';
                         // Para cada batida encontrada, adiciona um item na lista.
                         punchesForDay.forEach(ponto => {
-                            const time = new Date(ponto[1]).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                            html += `<li>${ponto[0]}: ${time}</li>`;
+                            const time = new Date(ponto.horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                            const originBadge = `<span class="badge badge-${ponto.origem}" style="font-size: 10px;">${ponto.origem}</span>`;
+                            const justification = ponto.justificativa || 'Sem justificativa';
+
+                            html += `<li style="margin-bottom: 15px;">
+                                <strong>${ponto.nome}</strong>: ${time} ${originBadge}
+                                <div class="justification-edit">
+                                    <input type="text" id="just-input-${ponto.id}" value="${ponto.justificativa || ''}" placeholder="Adicionar justificativa...">
+                                    <button onclick="updateJustification(${ponto.id})" class="submit-button" style="padding: 2px 8px; font-size: 12px;">OK</button>
+                                </div>
+                            </li>`;
                         });
                         html += '</ul>';
                     } else {
@@ -252,5 +360,31 @@ Dashboard de Ponto - Fazenda Ribeirão Preto<!-- templates/index.html -->
             // "Desenha" o calendário na tela.
             calendar.render();
         });
+
+        // Função para atualizar a justificativa via AJAX.
+        function updateJustification(pontoId) {
+            const justification = document.getElementById(`just-input-${pontoId}`).value;
+            const formData = new FormData();
+            formData.append('ponto_id', pontoId);
+            formData.append('justificativa', justification);
+
+            fetch('/update_justification', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Justificativa atualizada com sucesso!');
+                    window.location.reload(); // Recarrega para mostrar as mudanças.
+                } else {
+                    alert('Erro ao atualizar: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Erro na comunicação com o servidor.');
+            });
+        }
     </script>
 {% endblock %}
