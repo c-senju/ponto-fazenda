@@ -22,7 +22,7 @@
         }
         .header {
             background: #ffffff;
-            padding: 10px 40px;
+            padding: 5px 20px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
@@ -61,6 +61,8 @@
     <div class="header">
         <!-- Exibe a imagem do logo, buscando o caminho através do 'url_for'. -->
         <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo Fazenda">
+
+        {% block header_content %}{% endblock %}
 
         <!-- Bloco condicional do Jinja2: o conteúdo dentro dele só será exibido se a condição for verdadeira. -->
         <!-- Aqui, verificamos se a variável 'session.logged_in' (definida no Flask durante o login) é verdadeira. -->
